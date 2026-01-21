@@ -1,0 +1,82 @@
+# News Analyzer
+
+## Быстрый запуск
+
+1. Подготовьте `src/news_analyzer/settings/sources.yaml`.
+
+```yaml
+rbc:
+  sections:
+    - economics
+    - society
+  request_timeout: 20
+  pages_limit: 2
+```
+
+2. Добавьте переменные окружения для Airflow сервисов в `docker-compose.yml` (в секции `environment` у `airflow-webserver` и `airflow-scheduler`):
+
+- `SOURCES_CONFIG_PATH=src/news_analyzer/settings/sources.yaml`
+- `OPENSEARCH_HOSTS=http://opensearch:9200`
+- `GIGACHAT_BASE_URL=<gigachat_endpoint>`
+- `GIGACHAT_API_KEY=<gigachat_api_key>`
+
+3. Поднимите инфраструктуру:
+
+```bash
+docker compose up airflow-init
+docker compose up -d opensearch postgres airflow-webserver airflow-scheduler
+```
+
+4. Откройте Airflow: `http://localhost:8080`.
+
+- Логин: `admin`
+- Пароль: `admin`
+
+5. Включите DAG-и и запустите их:
+
+- `rbc_news_ingest`
+- `news_nlp_enrichment`
+- `news_summaries`
+- `news_retry_missing_summaries`
+
+## Запуск Streamlit
+
+1. Установите зависимости локально:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. Укажите OpenSearch для локального процесса:
+
+```bash
+export OPENSEARCH_HOSTS=http://localhost:9200
+export OPENSEARCH_NEWS_INDEX=news_items
+export OPENSEARCH_DIGESTS_INDEX=hourly_digests
+```
+
+3. Запустите приложение:
+
+```bash
+PYTHONPATH=src streamlit run src/news_analyzer/apps/streamlit/app.py
+```
+
+## Проверка
+
+1. Убедитесь, что в индексе `news_items` появляются документы из RBC.
+2. Убедитесь, что поля `class_label`, `entities`, `summary` заполняются после выполнения enrichment/summaries DAG-ов.
+3. Убедитесь, что в индексе `hourly_digests` появляются hourly digest документы.
+
+## Локальные тесты
+
+```bash
+python3 -m pytest -q
+```
+
+Если `pytest` не найден:
+
+```bash
+pip install -r requirements.txt
+```

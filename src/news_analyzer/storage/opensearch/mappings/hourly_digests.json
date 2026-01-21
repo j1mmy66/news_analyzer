@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    }
+  },
+  "mappings": {
+    "properties": {
+      "digest_id": {"type": "keyword"},
+      "window_start": {"type": "date"},
+      "window_end": {"type": "date"},
+      "summary": {"type": "text"},
+      "news_ids": {"type": "keyword"}
+    }
+  }
+}

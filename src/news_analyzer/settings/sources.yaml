@@ -1,0 +1,5 @@
+rbc:
+  sections:
+    - economics
+  request_timeout: 20
+  pages_limit: 2
