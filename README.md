@@ -11,6 +11,10 @@ rbc:
     - society
   request_timeout: 20
   pages_limit: 2
+  max_retries: 3
+  backoff_seconds: 0.5
+  fallback_enabled: true
+  user_agent: "news-analyzer-rbc-collector/1.0"
 ```
 
 2. Добавьте переменные окружения для Airflow сервисов в `docker-compose.yml` (в секции `environment` у `airflow-webserver` и `airflow-scheduler`):
@@ -24,13 +28,15 @@ rbc:
 
 ```bash
 docker compose up airflow-init
-docker compose up -d opensearch postgres airflow-webserver airflow-scheduler
+docker compose up -d opensearch opensearch-dashboards postgres airflow-webserver airflow-scheduler
 ```
 
 4. Откройте Airflow: `http://localhost:8080`.
 
 - Логин: `admin`
 - Пароль: `admin`
+
+OpenSearch Dashboards: `http://localhost:5601`.
 
 5. Включите DAG-и и запустите их:
 
@@ -68,6 +74,10 @@ PYTHONPATH=src streamlit run src/news_analyzer/apps/streamlit/app.py
 1. Убедитесь, что в индексе `news_items` появляются документы из RBC.
 2. Убедитесь, что поля `class_label`, `entities`, `summary` заполняются после выполнения enrichment/summaries DAG-ов.
 3. Убедитесь, что в индексе `hourly_digests` появляются hourly digest документы.
+4. Откройте OpenSearch Dashboards (`http://localhost:5601`) и проверьте индексы:
+   - `news_items`
+   - `hourly_digests`
+5. В Dashboards откройте Discover и убедитесь, что документы из `news_items` отображаются.
 
 ## Локальные тесты
 
