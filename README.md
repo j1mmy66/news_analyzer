@@ -23,22 +23,32 @@ rbc:
 - `OPENSEARCH_HOSTS=http://opensearch:9200`
 - `GIGACHAT_BASE_URL=<gigachat_endpoint>`
 - `GIGACHAT_API_KEY=<gigachat_api_key>`
+- `NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar`
+- `NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar`
+- `NER_MAX_RETRIES=2`
+- `NER_RETRY_BACKOFF_SECONDS=0.5`
+- `NER_RETRY_BACKOFF_CAP_SECONDS=5`
 
-3. Поднимите инфраструктуру:
+3. Подготовьте локальные артефакты NER-моделей в директории `models/`:
+
+- `models/slovnet_ner_news_v1.tar`
+- `models/navec_news_v1_1B_250K_300d_100q.tar`
+
+4. Поднимите инфраструктуру:
 
 ```bash
 docker compose up airflow-init
 docker compose up -d opensearch opensearch-dashboards postgres airflow-webserver airflow-scheduler
 ```
 
-4. Откройте Airflow: `http://localhost:8080`.
+5. Откройте Airflow: `http://localhost:8080`.
 
 - Логин: `admin`
 - Пароль: `admin`
 
 OpenSearch Dashboards: `http://localhost:5601`.
 
-5. Включите DAG-и и запустите их:
+6. Включите DAG-и и запустите их:
 
 - `rbc_news_ingest`
 - `news_nlp_enrichment`

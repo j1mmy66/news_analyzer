@@ -44,6 +44,11 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
       - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -67,6 +72,11 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
       - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -91,6 +101,11 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
       - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:

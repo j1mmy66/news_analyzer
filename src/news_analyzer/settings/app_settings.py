@@ -18,6 +18,11 @@ class AppSettings:
     gigachat_api_key: str | None = None
     gigachat_timeout_seconds: float = 15.0
     gigachat_max_retries: int = 3
+    ner_slovnet_model_path: Path = Path("models/slovnet_ner_news_v1.tar")
+    ner_navec_path: Path = Path("models/navec_news_v1_1B_250K_300d_100q.tar")
+    ner_max_retries: int = 2
+    ner_retry_backoff_seconds: float = 0.5
+    ner_retry_backoff_cap_seconds: float = 5.0
     sources_config_path: Path = Path("src/news_analyzer/settings/sources.yaml")
 
     @classmethod
@@ -35,5 +40,10 @@ class AppSettings:
             gigachat_api_key=getenv("GIGACHAT_API_KEY"),
             gigachat_timeout_seconds=float(getenv("GIGACHAT_TIMEOUT_SECONDS", "15")),
             gigachat_max_retries=int(getenv("GIGACHAT_MAX_RETRIES", "3")),
+            ner_slovnet_model_path=Path(getenv("NER_SLOVNET_MODEL_PATH", "models/slovnet_ner_news_v1.tar")),
+            ner_navec_path=Path(getenv("NER_NAVEC_PATH", "models/navec_news_v1_1B_250K_300d_100q.tar")),
+            ner_max_retries=int(getenv("NER_MAX_RETRIES", "2")),
+            ner_retry_backoff_seconds=float(getenv("NER_RETRY_BACKOFF_SECONDS", "0.5")),
+            ner_retry_backoff_cap_seconds=float(getenv("NER_RETRY_BACKOFF_CAP_SECONDS", "5")),
             sources_config_path=Path(getenv("SOURCES_CONFIG_PATH", "src/news_analyzer/settings/sources.yaml")),
         )
