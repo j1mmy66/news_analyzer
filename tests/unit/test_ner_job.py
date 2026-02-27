@@ -28,10 +28,15 @@ class _ClassifierStub:
 def _settings(tmp_path: Path) -> AppSettings:
     model_path = tmp_path / "slovnet.tar"
     navec_path = tmp_path / "navec.tar"
+    cls_path = tmp_path / "any-news-classifier"
+    cls_path.mkdir(parents=True, exist_ok=True)
     model_path.write_text("model", encoding="utf-8")
     navec_path.write_text("model", encoding="utf-8")
     return AppSettings(
         opensearch_hosts=["http://localhost:9200"],
+        classifier_model_path=cls_path,
+        classifier_device="cpu",
+        classifier_max_length=64,
         ner_slovnet_model_path=model_path,
         ner_navec_path=navec_path,
         ner_max_retries=2,
@@ -49,7 +54,7 @@ def _patch_common(
     monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
     monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
     monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
-    monkeypatch.setattr(ner_job, "KeywordClassificationModel", lambda: _ClassifierStub())
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _ClassifierStub())
     monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: model)
 
 
@@ -114,3 +119,29 @@ def test_run_ner_job_persists_empty_entities_after_ner_failures(tmp_path: Path, 
     assert len(repo.calls) == 1
     assert repo.calls[0][1] == []
     assert delays == [0.01, 0.02]
+
+
+def test_run_ner_job_fallbacks_to_other_on_classification_failure(tmp_path: Path, monkeypatch) -> None:
+    repo = _RepoStub([{"external_id": "n4", "cleaned_text": "Текст новости"}])
+    settings = _settings(tmp_path)
+
+    class _NERModel:
+        def extract(self, _text: str) -> list[Entity]:
+            return [Entity(text="Москва", label="LOC", start=0, end=6, confidence=0.8, normalized="москва")]
+
+    class _FailingClassifier:
+        def classify(self, _text: str) -> ClassificationResult:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _FailingClassifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _NERModel())
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert len(repo.calls) == 1
+    assert repo.calls[0][2].class_label == ClassLabel.OTHER
+    assert repo.calls[0][2].class_confidence == 0.0

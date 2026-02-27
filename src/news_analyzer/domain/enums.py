@@ -12,10 +12,15 @@ class ProcessingStatus(str, Enum):
 
 
 class ClassLabel(str, Enum):
+    CLIMATE = "climate"
+    CONFLICTS = "conflicts"
+    CULTURE = "culture"
     POLITICS = "politics"
     ECONOMY = "economy"
-    BUSINESS = "business"
+    GLOSS = "gloss"
+    HEALTH = "health"
+    SCIENCE = "science"
     SOCIETY = "society"
-    TECHNOLOGY = "technology"
     SPORTS = "sports"
+    TRAVEL = "travel"
     OTHER = "other"

@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import time
 
-from news_analyzer.domain.models import Entity
-from news_analyzer.nlp.classification.local_model import KeywordClassificationModel
+from news_analyzer.domain.enums import ClassLabel
+from news_analyzer.domain.models import ClassificationResult, Entity
+from news_analyzer.nlp.classification.local_model import HFNewsClassificationModel
 from news_analyzer.nlp.ner.local_model import NatashaSlovnetNERModel
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_client
@@ -59,7 +60,11 @@ def run_ner_job(limit: int = 300) -> int:
         slovnet_model_path=settings.ner_slovnet_model_path,
         navec_path=settings.ner_navec_path,
     )
-    classifier = KeywordClassificationModel()
+    classifier = HFNewsClassificationModel(
+        model_path=settings.classifier_model_path,
+        device=settings.classifier_device,
+        max_length=settings.classifier_max_length,
+    )
 
     processed = 0
     for item in repository.get_news_for_last_hour(limit=limit):
@@ -80,10 +85,19 @@ def run_ner_job(limit: int = 300) -> int:
 
         try:
             classification = classifier.classify(text)
+        except Exception:  # noqa: BLE001
+            logger.exception("Classification failed for %s; storing OTHER label", external_id)
+            classification = ClassificationResult(
+                class_label=ClassLabel.OTHER,
+                class_confidence=0.0,
+                model_version="hf-any-news-v1",
+            )
+
+        try:
             repository.set_enrichment(external_id, entities, classification)
             processed += 1
         except Exception:  # noqa: BLE001
-            logger.exception("Classification/persistence failed for %s", external_id)
+            logger.exception("Persistence failed for %s", external_id)
 
     logger.info("Enrichment completed for %s items", processed)
     return processed

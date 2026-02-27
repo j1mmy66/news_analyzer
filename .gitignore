@@ -19,3 +19,6 @@ AGENTS.md
 
 # Jupyter
 .ipynb_checkpoints/
+
+models/*
+!models/.gitkeep

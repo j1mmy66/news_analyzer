@@ -49,6 +49,9 @@ services:
       - NER_MAX_RETRIES=2
       - NER_RETRY_BACKOFF_SECONDS=0.5
       - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -77,6 +80,9 @@ services:
       - NER_MAX_RETRIES=2
       - NER_RETRY_BACKOFF_SECONDS=0.5
       - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -106,6 +112,9 @@ services:
       - NER_MAX_RETRIES=2
       - NER_RETRY_BACKOFF_SECONDS=0.5
       - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:

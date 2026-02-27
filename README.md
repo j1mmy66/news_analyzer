@@ -28,11 +28,15 @@ rbc:
 - `NER_MAX_RETRIES=2`
 - `NER_RETRY_BACKOFF_SECONDS=0.5`
 - `NER_RETRY_BACKOFF_CAP_SECONDS=5`
+- `CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier`
+- `CLASSIFIER_DEVICE=cpu`
+- `CLASSIFIER_MAX_LENGTH=512`
 
 3. Подготовьте локальные артефакты NER-моделей в директории `models/`:
 
 - `models/slovnet_ner_news_v1.tar`
 - `models/navec_news_v1_1B_250K_300d_100q.tar`
+- `models/any-news-classifier/` (локальный snapshot модели `data-silence/any-news-classifier`, без онлайн-загрузки в runtime)
 
 4. Поднимите инфраструктуру:
 

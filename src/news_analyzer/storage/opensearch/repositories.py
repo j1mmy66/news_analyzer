@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from opensearchpy import OpenSearch
+from opensearchpy.exceptions import ConflictError
 
 from news_analyzer.domain.models import ClassificationResult, Entity, HourlyDigest, NormalizedNewsItem, SummaryResult
 
@@ -13,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class NewsRepository:
+    _ENRICHMENT_RETRY_ATTEMPTS = 3
+    _ENRICHMENT_RETRY_BACKOFF_SECONDS = 0.1
+    _ENRICHMENT_RETRY_BACKOFF_CAP_SECONDS = 1.0
+
     def __init__(self, client: OpenSearch, index_name: str) -> None:
         self._client = client
         self._index_name = index_name
@@ -40,7 +46,25 @@ class NewsRepository:
                 "class_confidence": classification.class_confidence,
             }
         }
-        self._client.update(index=self._index_name, id=external_id, body=body)
+        for attempt in range(1, self._ENRICHMENT_RETRY_ATTEMPTS + 1):
+            try:
+                self._client.update(index=self._index_name, id=external_id, body=body)
+                return
+            except ConflictError:
+                if attempt >= self._ENRICHMENT_RETRY_ATTEMPTS:
+                    raise
+                delay = min(
+                    self._ENRICHMENT_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                    self._ENRICHMENT_RETRY_BACKOFF_CAP_SECONDS,
+                )
+                logger.warning(
+                    "Version conflict on set_enrichment for %s; retry %s/%s in %.2fs",
+                    external_id,
+                    attempt + 1,
+                    self._ENRICHMENT_RETRY_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
 
     def set_summary(self, external_id: str, summary: SummaryResult) -> None:
         body = {
