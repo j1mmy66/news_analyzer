@@ -1,8 +1,21 @@
 # Superset Datasets
 
-Use two primary datasets:
+Use a Postgres-backed dashboard dataset:
 
-- `news_items` for entity and class-based exploration.
-- `hourly_digests` for digest-level monitoring.
+- `ner_entity_metrics` (`public.ner_entity_metrics`) as the main dataset for NER exploration.
 
-`news_items` required fields: `source_type`, `published_at`, `entities.label`, `class_label`, `class_confidence`, `summary`.
+`ner_entity_metrics` fields:
+
+- `entity_name` (`text`) entity key, built from `entities.normalized` with fallback to `entities.text`.
+- `entity_type` (`text`) entity label from NER output.
+- `count_3h` (`int`) mention count for the last 3 hours in UTC.
+- `count_24h` (`int`) mention count for the last 24 hours in UTC.
+- `last_seen_at` (`timestamptz`) last UTC publication time where the entity appeared.
+
+Excluded entities for dashboard aggregation:
+
+- `РБК`
+- `MAX`
+- `MAХ`
+
+This table is refreshed by Airflow DAG `dashboard_ner_metrics` every 15 minutes.

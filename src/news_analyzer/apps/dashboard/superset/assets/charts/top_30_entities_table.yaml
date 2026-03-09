@@ -1,0 +1,19 @@
+version: 1.0.0
+uuid: 8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8
+dataset_uuid: 32a6ac63-d21b-4ad9-9d3f-484112fdf487
+slice_name: Top 100 Entities Table
+viz_type: table
+params:
+  viz_type: table
+  query_mode: raw
+  all_columns:
+    - entity_name
+    - entity_type
+    - count_3h
+    - count_24h
+    - last_seen_at
+  order_by_cols:
+    - '["count_24h", false]'
+  row_limit: 100
+  server_page_length: 100
+cache_timeout: null

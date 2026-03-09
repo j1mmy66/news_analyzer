@@ -109,9 +109,30 @@ class NewsRepository:
         )
         return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
 
+    def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
+        now_utc = datetime.now(timezone.utc)
+        window_start = now_utc - timedelta(hours=hours)
+        response = self._client.search(
+            index=self._index_name,
+            body={
+                "size": limit,
+                "query": {
+                    "bool": {
+                        "must": [{"range": {"published_at": {"gte": window_start.isoformat(), "lte": now_utc.isoformat()}}}],
+                        "must_not": [{"exists": {"field": "entities"}}],
+                    }
+                },
+                "sort": [{"published_at": {"order": "desc"}}],
+            },
+        )
+        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+
     def get_news_for_last_hour(self, now: datetime | None = None, limit: int = 300) -> list[dict[str, object]]:
+        return self.get_news_for_last_hours(hours=1, now=now, limit=limit)
+
+    def get_news_for_last_hours(self, hours: int, now: datetime | None = None, limit: int = 300) -> list[dict[str, object]]:
         now_utc = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
-        one_hour_ago = now_utc - timedelta(hours=1)
+        window_start = now_utc - timedelta(hours=hours)
 
         response = self._client.search(
             index=self._index_name,
@@ -120,7 +141,7 @@ class NewsRepository:
                 "query": {
                     "range": {
                         "published_at": {
-                            "gte": one_hour_ago.isoformat(),
+                            "gte": window_start.isoformat(),
                             "lte": now_utc.isoformat(),
                         }
                     }

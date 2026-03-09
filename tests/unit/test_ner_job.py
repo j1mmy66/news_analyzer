@@ -13,7 +13,8 @@ class _RepoStub:
         self._items = items
         self.calls: list[tuple[str, list[Entity], ClassificationResult]] = []
 
-    def get_news_for_last_hour(self, limit: int = 300) -> list[dict[str, object]]:
+    def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
+        assert hours == 24
         return self._items[:limit]
 
     def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:

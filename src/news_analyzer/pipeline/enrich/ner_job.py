@@ -67,7 +67,7 @@ def run_ner_job(limit: int = 300) -> int:
     )
 
     processed = 0
-    for item in repository.get_news_for_last_hour(limit=limit):
+    for item in repository.get_recent_news_without_enrichment(limit=limit, hours=24):
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
 

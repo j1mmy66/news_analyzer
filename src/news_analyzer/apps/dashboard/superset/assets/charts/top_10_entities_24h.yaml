@@ -1,0 +1,17 @@
+version: 1.0.0
+uuid: 3e630742-04d2-4222-924d-2bf7568bd484
+dataset_uuid: 32a6ac63-d21b-4ad9-9d3f-484112fdf487
+slice_name: Top 10 Entities (24h)
+viz_type: dist_bar
+params:
+  viz_type: dist_bar
+  metrics:
+    - sum__count_24h
+  groupby:
+    - entity_name
+  row_limit: 10
+  order_desc: true
+  sort_by_metric: true
+  show_legend: false
+  orientation: horizontal
+cache_timeout: null

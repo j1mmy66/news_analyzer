@@ -52,6 +52,12 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -83,6 +89,12 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -115,6 +127,12 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
       - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
       - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
     volumes:
@@ -126,6 +144,27 @@ services:
       airflow scheduler
       "
 
+  superset:
+    image: apache/superset:4.0.2
+    depends_on:
+      - postgres
+    environment:
+      - SUPERSET_SECRET_KEY=dev-superset-secret-key
+    volumes:
+      - ./src/news_analyzer/apps/dashboard/superset/assets:/app/superset/assets
+      - superset-home:/app/superset_home
+    ports:
+      - "8088:8088"
+    command: >
+      /bin/sh -c "
+      pip install --no-cache-dir psycopg2-binary &&
+      superset db upgrade &&
+      (superset fab create-admin --username admin --firstname admin --lastname admin --email admin@example.com --password admin || true) &&
+      superset init &&
+      superset run -h 0.0.0.0 -p 8088
+      "
+
 volumes:
   opensearch-data:
   postgres-data:
+  superset-home:
