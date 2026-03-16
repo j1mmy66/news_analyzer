@@ -1,0 +1,191 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.13.0
+    depends_on:
+      - opensearch
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  airflow-init:
+    image: apache/airflow:2.9.1
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
+      - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
+      - GIGACHAT_AUTH_KEY=${GIGACHAT_AUTH_KEY:-}
+      - GIGACHAT_SCOPE=${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      - GIGACHAT_MODEL=${GIGACHAT_MODEL:-GigaChat}
+      - GIGACHAT_TIMEOUT_SECONDS=${GIGACHAT_TIMEOUT_SECONDS:-15}
+      - GIGACHAT_MAX_RETRIES=${GIGACHAT_MAX_RETRIES:-3}
+      - GIGACHAT_VERIFY_SSL=${GIGACHAT_VERIFY_SSL:-true}
+      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY:-}
+      - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
+      - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app
+    entrypoint: >
+      /bin/bash -c "
+      pip install --no-cache-dir -r /opt/airflow/app/requirements.txt &&
+      airflow db migrate &&
+      airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com
+      "
+
+  airflow-webserver:
+    image: apache/airflow:2.9.1
+    depends_on:
+      - airflow-init
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
+      - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
+      - GIGACHAT_AUTH_KEY=${GIGACHAT_AUTH_KEY:-}
+      - GIGACHAT_SCOPE=${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      - GIGACHAT_MODEL=${GIGACHAT_MODEL:-GigaChat}
+      - GIGACHAT_TIMEOUT_SECONDS=${GIGACHAT_TIMEOUT_SECONDS:-15}
+      - GIGACHAT_MAX_RETRIES=${GIGACHAT_MAX_RETRIES:-3}
+      - GIGACHAT_VERIFY_SSL=${GIGACHAT_VERIFY_SSL:-true}
+      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY:-}
+      - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
+      - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app
+    ports:
+      - "8080:8080"
+    entrypoint: >
+      /bin/bash -c "
+      pip install --no-cache-dir -r /opt/airflow/app/requirements.txt &&
+      airflow webserver
+      "
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.1
+    depends_on:
+      - airflow-init
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
+      - SOURCES_CONFIG_PATH=/opt/airflow/app/src/news_analyzer/settings/sources.yaml
+      - NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar
+      - NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar
+      - NER_MAX_RETRIES=2
+      - NER_RETRY_BACKOFF_SECONDS=0.5
+      - NER_RETRY_BACKOFF_CAP_SECONDS=5
+      - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
+      - CLASSIFIER_DEVICE=cpu
+      - CLASSIFIER_MAX_LENGTH=512
+      - DASHBOARD_PG_HOST=postgres
+      - DASHBOARD_PG_PORT=5432
+      - DASHBOARD_PG_DATABASE=airflow
+      - DASHBOARD_PG_USER=airflow
+      - DASHBOARD_PG_PASSWORD=airflow
+      - DASHBOARD_PG_TABLE=ner_entity_metrics
+      - GIGACHAT_AUTH_KEY=${GIGACHAT_AUTH_KEY:-}
+      - GIGACHAT_SCOPE=${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      - GIGACHAT_MODEL=${GIGACHAT_MODEL:-GigaChat}
+      - GIGACHAT_TIMEOUT_SECONDS=${GIGACHAT_TIMEOUT_SECONDS:-15}
+      - GIGACHAT_MAX_RETRIES=${GIGACHAT_MAX_RETRIES:-3}
+      - GIGACHAT_VERIFY_SSL=${GIGACHAT_VERIFY_SSL:-true}
+      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY:-}
+      - _PIP_ADDITIONAL_REQUIREMENTS=opensearch-py>=2.5.0 PyYAML>=6.0.1 requests>=2.31.0 beautifulsoup4>=4.12.0
+      - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app
+    entrypoint: >
+      /bin/bash -c "
+      pip install --no-cache-dir -r /opt/airflow/app/requirements.txt &&
+      airflow scheduler
+      "
+
+  superset:
+    image: apache/superset:4.0.2
+    depends_on:
+      - postgres
+    environment:
+      - SUPERSET_SECRET_KEY=dev-superset-secret-key
+    volumes:
+      - ./src/news_analyzer/apps/dashboard/superset/assets:/app/superset/assets
+      - superset-home:/app/superset_home
+    ports:
+      - "8088:8088"
+    command: >
+      /bin/sh -c "
+      pip install --no-cache-dir psycopg2-binary &&
+      superset db upgrade &&
+      (superset fab create-admin --username admin --firstname admin --lastname admin --email admin@example.com --password admin || true) &&
+      superset init &&
+      superset run -h 0.0.0.0 -p 8088
+      "
+
+volumes:
+  opensearch-data:
+  postgres-data:
+  superset-home:

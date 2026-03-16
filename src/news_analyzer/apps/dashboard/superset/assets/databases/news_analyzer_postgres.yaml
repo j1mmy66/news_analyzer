@@ -1,0 +1,7 @@
+version: 1.0.0
+uuid: 5bb9f95e-f01a-4a98-8ce0-9bad101f235f
+database_name: news_analyzer_postgres
+sqlalchemy_uri: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+expose_in_sqllab: true
+allow_csv_upload: false
+extra: {}

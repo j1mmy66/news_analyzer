@@ -1,0 +1,9 @@
+rbc:
+  sections:
+    - economics
+  request_timeout: 20
+  pages_limit: 2
+  max_retries: 3
+  backoff_seconds: 0.5
+  fallback_enabled: true
+  user_agent: "news-analyzer-rbc-collector/1.0"

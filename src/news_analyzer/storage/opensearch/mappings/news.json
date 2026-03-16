@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    }
+  },
+  "mappings": {
+    "properties": {
+      "source_type": {"type": "keyword"},
+      "external_id": {"type": "keyword"},
+      "published_at": {"type": "date"},
+      "source_metadata": {"type": "object", "enabled": true},
+      "raw_text": {"type": "text"},
+      "cleaned_text": {"type": "text"},
+      "entities": {
+        "type": "nested",
+        "properties": {
+          "text": {"type": "text"},
+          "label": {"type": "keyword"},
+          "start": {"type": "integer"},
+          "end": {"type": "integer"},
+          "confidence": {"type": "float"},
+          "normalized": {"type": "keyword"}
+        }
+      },
+      "class_label": {"type": "keyword"},
+      "class_confidence": {"type": "float"},
+      "summary": {"type": "text"},
+      "summary_status": {"type": "keyword"},
+      "summary_error_code": {"type": "keyword"},
+      "summary_updated_at": {"type": "date"},
+      "hourly_digest_id": {"type": "keyword"}
+    }
+  }
+}

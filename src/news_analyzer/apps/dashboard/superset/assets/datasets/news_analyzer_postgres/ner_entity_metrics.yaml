@@ -1,0 +1,43 @@
+version: 1.0.0
+uuid: 32a6ac63-d21b-4ad9-9d3f-484112fdf487
+database_uuid: 5bb9f95e-f01a-4a98-8ce0-9bad101f235f
+table_name: ner_entity_metrics
+schema: public
+main_dttm_col: last_seen_at
+offset: 0
+default_endpoint: null
+cache_timeout: null
+is_managed_externally: false
+columns:
+  - column_name: entity_name
+    type: TEXT
+    groupby: true
+    filterable: true
+    is_dttm: false
+  - column_name: entity_type
+    type: TEXT
+    groupby: true
+    filterable: true
+    is_dttm: false
+  - column_name: count_3h
+    type: INTEGER
+    groupby: false
+    filterable: true
+    is_dttm: false
+  - column_name: count_24h
+    type: INTEGER
+    groupby: false
+    filterable: true
+    is_dttm: false
+  - column_name: last_seen_at
+    type: TIMESTAMP
+    groupby: false
+    filterable: true
+    is_dttm: true
+metrics:
+  - metric_name: sum__count_3h
+    metric_type: sum
+    expression: SUM(count_3h)
+  - metric_name: sum__count_24h
+    metric_type: sum
+    expression: SUM(count_24h)

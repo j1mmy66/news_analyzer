@@ -1,0 +1,14 @@
+opensearch-py>=2.5.0
+psycopg[binary]>=3.2.0
+PyYAML>=6.0.1
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+cachetools<6
+gigachat
+streamlit>=1.40.0
+pytest>=8.0.0
+natasha>=1.6.0
+slovnet>=0.6.0
+navec>=0.10.0
+transformers>=4.42.0
+torch>=2.3.0
