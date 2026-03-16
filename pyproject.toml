@@ -1,12 +1,19 @@
-[tool.ruff]
-line-length = 88
-target-version = "py314"
-fix = true
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = []
+[project]
+name = "news-analyzer"
+version = "0.1.0"
+description = "Russian-language streaming news analyzer"
+requires-python = ">=3.11"
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
