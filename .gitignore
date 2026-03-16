@@ -4,3 +4,21 @@ __pycache__/
 .DS_Store
 .ruff_cache/
 .vscode/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local agent instructions (machine/user-specific)
+AGENTS.md
+
+# Test/cache artifacts
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+models/*
+!models/.gitkeep

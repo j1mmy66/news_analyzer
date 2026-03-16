@@ -1,0 +1,91 @@
+version: 1.0.0
+uuid: 349c2ece-a90d-4d33-a91b-6f2db83c788e
+dashboard_title: NER Entities Overview
+slug: ner-entities-overview
+published: true
+description: NER dashboard with top entities for 3h/24h and top-100 table.
+position:
+  CHART-f657fdb9-3f0a-4ad6-b251-6c4e1329bc45:
+    children: []
+    id: CHART-f657fdb9-3f0a-4ad6-b251-6c4e1329bc45
+    meta:
+      chartId: f657fdb9-3f0a-4ad6-b251-6c4e1329bc45
+      height: 50
+      sliceName: Top 10 Entities (3h)
+      uuid: f657fdb9-3f0a-4ad6-b251-6c4e1329bc45
+      width: 6
+    parents:
+      - ROOT_ID
+      - GRID_ID
+      - ROW-top
+    type: CHART
+  CHART-3e630742-04d2-4222-924d-2bf7568bd484:
+    children: []
+    id: CHART-3e630742-04d2-4222-924d-2bf7568bd484
+    meta:
+      chartId: 3e630742-04d2-4222-924d-2bf7568bd484
+      height: 50
+      sliceName: Top 10 Entities (24h)
+      uuid: 3e630742-04d2-4222-924d-2bf7568bd484
+      width: 6
+    parents:
+      - ROOT_ID
+      - GRID_ID
+      - ROW-top
+    type: CHART
+  CHART-8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8:
+    children: []
+    id: CHART-8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8
+    meta:
+      chartId: 8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8
+      height: 60
+      sliceName: Top 100 Entities Table
+      uuid: 8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8
+      width: 12
+    parents:
+      - ROOT_ID
+      - GRID_ID
+      - ROW-table
+    type: CHART
+  DASHBOARD_VERSION_KEY:
+    hash: dcc9ba64ff4f35ef02f7a3071f0b4aaf
+  GRID_ID:
+    children:
+      - ROW-top
+      - ROW-table
+    id: GRID_ID
+    parents:
+      - ROOT_ID
+    type: GRID
+  ROOT_ID:
+    children:
+      - GRID_ID
+    id: ROOT_ID
+    type: ROOT
+  ROW-top:
+    children:
+      - CHART-f657fdb9-3f0a-4ad6-b251-6c4e1329bc45
+      - CHART-3e630742-04d2-4222-924d-2bf7568bd484
+    id: ROW-top
+    meta:
+      background: BACKGROUND_TRANSPARENT
+    parents:
+      - ROOT_ID
+      - GRID_ID
+    type: ROW
+  ROW-table:
+    children:
+      - CHART-8a3372e0-44e1-4ad2-9f22-3ffcc5af4db8
+    id: ROW-table
+    meta:
+      background: BACKGROUND_TRANSPARENT
+    parents:
+      - ROOT_ID
+      - GRID_ID
+    type: ROW
+metadata:
+  chart_configuration: {}
+  color_scheme: supersetColors
+  label_colors: {}
+  timed_refresh_immune_slices: []
+  native_filter_configuration: []
