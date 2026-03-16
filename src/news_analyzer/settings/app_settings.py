@@ -20,7 +20,10 @@ class AppSettings:
     dashboard_pg_user: str = "airflow"
     dashboard_pg_password: str = "airflow"
     dashboard_pg_table: str = "ner_entity_metrics"
-    gigachat_base_url: str | None = None
+    gigachat_auth_key: str | None = None
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_model: str = "GigaChat"
+    gigachat_verify_ssl: bool = True
     gigachat_api_key: str | None = None
     gigachat_timeout_seconds: float = 15.0
     gigachat_max_retries: int = 3
@@ -51,7 +54,10 @@ class AppSettings:
             dashboard_pg_user=getenv("DASHBOARD_PG_USER", "airflow"),
             dashboard_pg_password=getenv("DASHBOARD_PG_PASSWORD", "airflow"),
             dashboard_pg_table=getenv("DASHBOARD_PG_TABLE", "ner_entity_metrics"),
-            gigachat_base_url=getenv("GIGACHAT_BASE_URL"),
+            gigachat_auth_key=getenv("GIGACHAT_AUTH_KEY"),
+            gigachat_scope=getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"),
+            gigachat_model=getenv("GIGACHAT_MODEL", "GigaChat"),
+            gigachat_verify_ssl=getenv("GIGACHAT_VERIFY_SSL", "true").lower() == "true",
             gigachat_api_key=getenv("GIGACHAT_API_KEY"),
             gigachat_timeout_seconds=float(getenv("GIGACHAT_TIMEOUT_SECONDS", "15")),
             gigachat_max_retries=int(getenv("GIGACHAT_MAX_RETRIES", "3")),

@@ -21,8 +21,13 @@ rbc:
 
 - `SOURCES_CONFIG_PATH=src/news_analyzer/settings/sources.yaml`
 - `OPENSEARCH_HOSTS=http://opensearch:9200`
-- `GIGACHAT_BASE_URL=<gigachat_endpoint>`
-- `GIGACHAT_API_KEY=<gigachat_api_key>`
+- `GIGACHAT_AUTH_KEY=<gigachat_authorization_key>`
+- `GIGACHAT_SCOPE=GIGACHAT_API_PERS`
+- `GIGACHAT_MODEL=GigaChat`
+- `GIGACHAT_TIMEOUT_SECONDS=15`
+- `GIGACHAT_MAX_RETRIES=3`
+- `GIGACHAT_VERIFY_SSL=true`
+- `GIGACHAT_API_KEY=<legacy_optional_fallback>`
 - `NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar`
 - `NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar`
 - `NER_MAX_RETRIES=2`

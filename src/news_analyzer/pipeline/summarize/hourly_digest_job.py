@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 def run_hourly_digest_job() -> str | None:
     logging.basicConfig(level=logging.INFO)
     settings = AppSettings.from_env()
-    if not settings.gigachat_base_url or not settings.gigachat_api_key:
+    auth_key = settings.gigachat_auth_key
+    if not auth_key and settings.gigachat_api_key:
+        logger.warning("GIGACHAT_API_KEY is deprecated, use GIGACHAT_AUTH_KEY")
+        auth_key = settings.gigachat_api_key
+    if not auth_key:
         logger.warning("GigaChat credentials are not configured; skipping hourly digest")
         return None
 
@@ -48,10 +52,12 @@ def run_hourly_digest_job() -> str | None:
 
     summary_service = SummaryService(
         GigaChatClient(
-            base_url=settings.gigachat_base_url,
-            api_key=settings.gigachat_api_key,
+            auth_key=auth_key,
+            scope=settings.gigachat_scope,
+            model=settings.gigachat_model,
             timeout_seconds=settings.gigachat_timeout_seconds,
             max_retries=settings.gigachat_max_retries,
+            verify_ssl=settings.gigachat_verify_ssl,
         )
     )
     result = summary_service.summarize_hour(texts)

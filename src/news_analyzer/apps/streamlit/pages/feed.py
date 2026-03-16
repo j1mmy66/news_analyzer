@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 
 from news_analyzer.apps.streamlit.query_service import StreamlitQueryService
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_client
+
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
 @st.cache_resource
@@ -24,17 +29,23 @@ def _query_service() -> StreamlitQueryService:
     return StreamlitQueryService(client, settings.opensearch_news_index, settings.opensearch_digests_index)
 
 
+def _format_dt(value: datetime | None) -> str:
+    if value is None:
+        return "n/a"
+    return value.astimezone(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def render_feed() -> None:
     st.subheader("News Feed")
     source = st.selectbox("Source", ["", "rbc"], index=0)
     class_label = st.text_input("Class label")
 
-    items = _query_service().latest_news(source=source or None, class_label=class_label or None)
-    for item in items:
-        st.markdown(f"### {item.get('source_metadata', {}).get('title') or item.get('external_id')}")
-        st.write(f"Source: {item.get('source_type')} | Class: {item.get('class_label', 'n/a')}")
-        st.write(item.get("summary") or "Summary is pending")
-        link = item.get("source_metadata", {}).get("url") or item.get("source_metadata", {}).get("permalink")
-        if link:
-            st.markdown(f"[Open source]({link})")
+    page = _query_service().latest_news_page(source=source or None, class_label=class_label or None)
+    for item in page.items:
+        st.markdown(f"### {item.title}")
+        st.write(f"Source: {item.source_type or 'n/a'} | Class: {item.class_label or 'n/a'}")
+        st.write(f"Published: {_format_dt(item.published_at)}")
+        st.write(item.summary or "Summary is pending")
+        if item.url:
+            st.markdown(f"[Open source]({item.url})")
         st.divider()
