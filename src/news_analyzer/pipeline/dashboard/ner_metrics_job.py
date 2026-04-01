@@ -13,7 +13,7 @@ from news_analyzer.storage.opensearch.repositories import NewsRepository
 
 logger = logging.getLogger(__name__)
 _TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_EXCLUDED_ENTITY_NAMES = {"РБК", "MAX", "MAХ"}
+_EXCLUDED_ENTITY_NAMES = {"РБК", "MAX", "MAХ", "MAX!", "MAХ!"}
 
 
 @dataclass(frozen=True)

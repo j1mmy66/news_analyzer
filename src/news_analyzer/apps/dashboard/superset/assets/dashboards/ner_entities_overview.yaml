@@ -3,7 +3,7 @@ uuid: 349c2ece-a90d-4d33-a91b-6f2db83c788e
 dashboard_title: NER Entities Overview
 slug: ner-entities-overview
 published: true
-description: NER dashboard with top entities for 3h/24h and top-100 table.
+description: NER-oriented analytics dashboard over ner_entity_metrics with top entities for 3h and 24h, a tabular entity view, and entity-centric exploration of the news stream.
 position:
   CHART-f657fdb9-3f0a-4ad6-b251-6c4e1329bc45:
     children: []

@@ -17,5 +17,7 @@ Excluded entities for dashboard aggregation:
 - `РБК`
 - `MAX`
 - `MAХ`
+- `MAX!`
+- `MAХ!`
 
 This table is refreshed by Airflow DAG `dashboard_ner_metrics` every 15 minutes.
