@@ -146,3 +146,123 @@ def test_run_ner_job_fallbacks_to_other_on_classification_failure(tmp_path: Path
     assert len(repo.calls) == 1
     assert repo.calls[0][2].class_label == ClassLabel.OTHER
     assert repo.calls[0][2].class_confidence == 0.0
+
+
+def test_run_ner_job_trims_template_phrase_for_ner_and_classification(tmp_path: Path, monkeypatch) -> None:
+    source_text = "До маркера. Самые важные новости: хвост который нужно убрать."
+    repo = _RepoStub([{"external_id": "n5", "cleaned_text": source_text}])
+    settings = _settings(tmp_path)
+    seen: dict[str, str] = {}
+
+    class _NERModel:
+        def extract(self, text: str) -> list[Entity]:
+            seen["ner"] = text
+            return []
+
+    class _Classifier:
+        def classify(self, text: str) -> ClassificationResult:
+            seen["clf"] = text
+            return ClassificationResult(class_label=ClassLabel.ECONOMY, class_confidence=0.7, model_version="stub")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _Classifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _NERModel())
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert seen["ner"] == "До маркера."
+    assert seen["clf"] == "До маркера."
+
+
+def test_run_ner_job_trims_template_phrase_case_insensitive(tmp_path: Path, monkeypatch) -> None:
+    source_text = "Вступление самые важные новости и дальше шаблон."
+    repo = _RepoStub([{"external_id": "n6", "cleaned_text": source_text}])
+    settings = _settings(tmp_path)
+    seen: dict[str, str] = {}
+
+    class _NERModel:
+        def extract(self, text: str) -> list[Entity]:
+            seen["ner"] = text
+            return []
+
+    class _Classifier:
+        def classify(self, text: str) -> ClassificationResult:
+            seen["clf"] = text
+            return ClassificationResult(class_label=ClassLabel.ECONOMY, class_confidence=0.7, model_version="stub")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _Classifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _NERModel())
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert seen["ner"] == "Вступление"
+    assert seen["clf"] == "Вступление"
+
+
+def test_run_ner_job_keeps_original_text_when_phrase_missing(tmp_path: Path, monkeypatch) -> None:
+    source_text = "Обычный текст новости без служебного хвоста."
+    repo = _RepoStub([{"external_id": "n7", "cleaned_text": source_text}])
+    settings = _settings(tmp_path)
+    seen: dict[str, str] = {}
+
+    class _NERModel:
+        def extract(self, text: str) -> list[Entity]:
+            seen["ner"] = text
+            return []
+
+    class _Classifier:
+        def classify(self, text: str) -> ClassificationResult:
+            seen["clf"] = text
+            return ClassificationResult(class_label=ClassLabel.ECONOMY, class_confidence=0.7, model_version="stub")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _Classifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _NERModel())
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert seen["ner"] == source_text
+    assert seen["clf"] == source_text
+
+
+def test_extract_with_retry_returns_empty_when_no_attempts_configured() -> None:
+    class _Model:
+        def extract(self, text: str):
+            raise AssertionError("extract should not be called")
+
+    entities = ner_job._extract_with_retry(
+        ner_model=_Model(),  # type: ignore[arg-type]
+        text="text",
+        max_retries=-1,
+        backoff_seconds=0.1,
+        backoff_cap_seconds=1.0,
+    )
+    assert entities == []
+
+
+def test_run_ner_job_logs_persistence_error_and_continues(tmp_path: Path, monkeypatch) -> None:
+    class _FailingRepo(_RepoStub):
+        def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
+            raise RuntimeError("persist-failed")
+
+    repo = _FailingRepo([{"external_id": "n8", "cleaned_text": "Текст"}])
+    settings = _settings(tmp_path)
+
+    class _NERModel:
+        def extract(self, _text: str) -> list[Entity]:
+            return []
+
+    _patch_common(monkeypatch, repo, settings, _NERModel())
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 0

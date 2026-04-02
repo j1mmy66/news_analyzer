@@ -12,6 +12,15 @@ from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_clie
 from news_analyzer.storage.opensearch.repositories import NewsRepository
 
 logger = logging.getLogger(__name__)
+_TEMPLATE_PHRASE = "Самые важные новости"
+
+
+def _trim_after_template_phrase(text: str) -> str:
+    lower_text = text.lower()
+    marker_index = lower_text.find(_TEMPLATE_PHRASE.lower())
+    if marker_index == -1:
+        return text
+    return text[:marker_index].strip()
 
 
 def _extract_with_retry(
@@ -70,11 +79,12 @@ def run_ner_job(limit: int = 300) -> int:
     for item in repository.get_recent_news_without_enrichment(limit=limit, hours=24):
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
+        prepared_text = _trim_after_template_phrase(text)
 
         try:
             entities = _extract_with_retry(
                 ner_model=ner_model,
-                text=text,
+                text=prepared_text,
                 max_retries=settings.ner_max_retries,
                 backoff_seconds=settings.ner_retry_backoff_seconds,
                 backoff_cap_seconds=settings.ner_retry_backoff_cap_seconds,
@@ -84,7 +94,7 @@ def run_ner_job(limit: int = 300) -> int:
             entities = []
 
         try:
-            classification = classifier.classify(text)
+            classification = classifier.classify(prepared_text)
         except Exception:  # noqa: BLE001
             logger.exception("Classification failed for %s; storing OTHER label", external_id)
             classification = ClassificationResult(
