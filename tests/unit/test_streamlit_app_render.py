@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import runpy
+import sys
+import types
 
 from news_analyzer.apps.streamlit import app
 from news_analyzer.apps.streamlit.view_models import HourlyDigestView, NewsCard, NewsCursor, NewsPage
@@ -11,6 +14,7 @@ class _FakeService:
     def __init__(self, pages: list[NewsPage], digest: HourlyDigestView | None) -> None:
         self._pages = pages
         self._digest = digest
+        self.calls = 0
 
     def latest_hourly_digest_for_last_hour(self) -> HourlyDigestView | None:
         return self._digest
@@ -22,6 +26,7 @@ class _FakeService:
         source: str | None = None,
         class_label: str | None = None,
     ) -> NewsPage:
+        self.calls += 1
         return self._pages.pop(0)
 
 
@@ -168,3 +173,173 @@ def test_render_app_load_more_updates_state(monkeypatch) -> None:
     assert len(items) == 2
     assert fake_st.session_state[app.STATE_HAS_MORE_KEY] is False
     assert fake_st.rerun_called is True
+
+
+def test_ensure_and_reset_feed_state(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+
+    app._ensure_feed_state()
+    assert fake_st.session_state[app.STATE_ITEMS_KEY] == []
+    assert fake_st.session_state[app.STATE_HAS_MORE_KEY] is True
+
+    app._reset_feed_state(source="rbc", class_label="economy")
+    assert fake_st.session_state[app.STATE_SOURCE_KEY] == "rbc"
+    assert fake_st.session_state[app.STATE_CLASS_KEY] == "economy"
+    assert fake_st.session_state[app.STATE_CURSOR_KEY] is None
+
+
+def test_load_more_news_skips_when_has_more_is_false(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    fake_st.session_state[app.STATE_HAS_MORE_KEY] = False
+    fake_service = _FakeService(pages=[], digest=None)
+    monkeypatch.setattr(app, "st", fake_st)
+
+    app._load_more_news(fake_service, source="", class_label="")
+    assert fake_service.calls == 0
+
+
+def test_render_app_shows_not_found_when_page_is_empty(monkeypatch) -> None:
+    empty_page = NewsPage(items=[], next_cursor=None, has_more=False)
+    fake_service = _FakeService(pages=[empty_page], digest=None)
+    fake_st = _FakeStreamlit(button_value=False)
+
+    monkeypatch.setattr(app, "_query_service", lambda: fake_service)
+    monkeypatch.setattr(app, "st", fake_st)
+
+    app.render_app()
+
+    assert any("Новости не найдены." in line for line in fake_st.writes)
+
+
+def test_app_query_service_builds_client_from_settings(monkeypatch) -> None:
+    class _Settings:
+        opensearch_hosts = ["http://localhost:9200"]
+        opensearch_news_index = "news_items"
+        opensearch_digests_index = "hourly_digests"
+        opensearch_username = "u"
+        opensearch_password = "p"
+        opensearch_use_ssl = True
+        opensearch_verify_certs = True
+
+    def _fake_build_client(config):
+        return "client-object"
+
+    class _FakeQueryService:
+        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+            self.client = client
+            self.news_index = news_index
+            self.digest_index = digest_index
+
+    monkeypatch.setattr(app.AppSettings, "from_env", classmethod(lambda cls: _Settings()))
+    monkeypatch.setattr(app, "build_client", _fake_build_client)
+    monkeypatch.setattr(app, "StreamlitQueryService", _FakeQueryService)
+
+    service = app._query_service.__wrapped__()
+
+    assert isinstance(service, _FakeQueryService)
+    assert service.client == "client-object"
+    assert service.news_index == "news_items"
+    assert service.digest_index == "hourly_digests"
+
+
+def test_app_format_dt_handles_none() -> None:
+    assert app._format_dt(None) == "n/a"
+
+
+def test_render_app_resets_feed_state_when_filters_change(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    fake_st.session_state = {
+        app.STATE_SOURCE_KEY: "",
+        app.STATE_CLASS_KEY: "",
+        app.STATE_ITEMS_KEY: ["old-item"],
+        app.STATE_CURSOR_KEY: "old-cursor",
+        app.STATE_HAS_MORE_KEY: False,
+    }
+    fake_service = _FakeService(
+        pages=[NewsPage(items=[], next_cursor=None, has_more=False)],
+        digest=None,
+    )
+
+    monkeypatch.setattr(app, "_query_service", lambda: fake_service)
+    monkeypatch.setattr(app, "st", fake_st)
+    monkeypatch.setattr(fake_st, "selectbox", lambda *args, **kwargs: "rbc")
+    monkeypatch.setattr(fake_st, "text_input", lambda *args, **kwargs: "economy")
+
+    app.render_app()
+
+    assert fake_st.session_state[app.STATE_SOURCE_KEY] == "rbc"
+    assert fake_st.session_state[app.STATE_CLASS_KEY] == "economy"
+
+
+def test_app_main_guard_executes_render_app(monkeypatch) -> None:
+    fake_st_module = types.ModuleType("streamlit")
+    fake_st_module.session_state = {}
+    fake_st_module.cache_resource = lambda fn: fn
+    fake_st_module.set_page_config = lambda **kwargs: None
+    fake_st_module.title = lambda text: None
+    fake_st_module.subheader = lambda text: None
+    fake_st_module.info = lambda text: None
+    fake_st_module.write = lambda text: None
+    fake_st_module.caption = lambda text: None
+    fake_st_module.divider = lambda: None
+    fake_st_module.selectbox = lambda *args, **kwargs: ""
+    fake_st_module.text_input = lambda *args, **kwargs: ""
+    fake_st_module.markdown = lambda text: None
+    fake_st_module.button = lambda label: False
+    fake_st_module.rerun = lambda: None
+
+    @contextmanager
+    def _expander(_label: str):
+        yield None
+
+    fake_st_module.expander = _expander
+
+    fake_settings_module = types.ModuleType("news_analyzer.settings.app_settings")
+
+    class _FakeSettings:
+        opensearch_hosts = ["http://localhost:9200"]
+        opensearch_news_index = "news_items"
+        opensearch_digests_index = "hourly_digests"
+        opensearch_username = None
+        opensearch_password = None
+        opensearch_use_ssl = False
+        opensearch_verify_certs = False
+
+    class _AppSettings:
+        @classmethod
+        def from_env(cls):
+            return _FakeSettings()
+
+    fake_settings_module.AppSettings = _AppSettings
+
+    fake_client_module = types.ModuleType("news_analyzer.storage.opensearch.client")
+
+    class _OpenSearchConfig:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    fake_client_module.OpenSearchConfig = _OpenSearchConfig
+    fake_client_module.build_client = lambda config: object()
+
+    fake_query_module = types.ModuleType("news_analyzer.apps.streamlit.query_service")
+
+    class _Service:
+        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+            return None
+
+        def latest_hourly_digest_for_last_hour(self):
+            return None
+
+        def latest_news_page(self, **kwargs):
+            return types.SimpleNamespace(items=[], next_cursor=None, has_more=False)
+
+    fake_query_module.StreamlitQueryService = _Service
+
+    monkeypatch.setitem(__import__("sys").modules, "streamlit", fake_st_module)
+    monkeypatch.setitem(__import__("sys").modules, "news_analyzer.settings.app_settings", fake_settings_module)
+    monkeypatch.setitem(__import__("sys").modules, "news_analyzer.storage.opensearch.client", fake_client_module)
+    monkeypatch.setitem(__import__("sys").modules, "news_analyzer.apps.streamlit.query_service", fake_query_module)
+    monkeypatch.delitem(sys.modules, "news_analyzer.apps.streamlit.app", raising=False)
+
+    runpy.run_module("news_analyzer.apps.streamlit.app", run_name="__main__")
