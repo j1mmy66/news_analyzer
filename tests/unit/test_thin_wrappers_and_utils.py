@@ -40,6 +40,7 @@ def test_run_retry_missing_summaries_job_delegates_to_item_summary_job(monkeypat
 
 def test_idempotency_key_uses_source_type_and_external_id() -> None:
     assert idempotency_key(SourceType.RBC, "abc-42") == "rbc:abc-42"
+    assert idempotency_key(SourceType.LENTA, "abc-42") == "lenta:abc-42"
 
 
 def test_run_context_create_sets_uuid_and_utc_timestamp(monkeypatch) -> None:

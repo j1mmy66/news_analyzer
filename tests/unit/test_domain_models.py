@@ -28,3 +28,17 @@ def test_domain_schemas_construct() -> None:
     assert entity.label == "LOC"
     assert cls.model_version == "v1"
     assert summary.status == ProcessingStatus.SUCCESS
+
+
+def test_domain_schemas_support_lenta_source() -> None:
+    item = NormalizedNewsItem(
+        source_type=SourceType.LENTA,
+        external_id="lenta:https://lenta.ru/news/2026/03/17/123",
+        published_at=datetime.now(timezone.utc),
+        source_metadata={"url": "https://lenta.ru/news/2026/03/17/123", "section": "Россия"},
+        raw_text="raw",
+        cleaned_text="clean",
+    )
+
+    assert item.source_type == SourceType.LENTA
+    assert item.external_id.startswith("lenta:")

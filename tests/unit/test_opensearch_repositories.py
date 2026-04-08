@@ -38,9 +38,9 @@ class _ClientStub:
         return self.get_response
 
 
-def _sample_news_item(external_id: str = "id-1") -> NormalizedNewsItem:
+def _sample_news_item(external_id: str = "id-1", source_type: SourceType = SourceType.RBC) -> NormalizedNewsItem:
     return NormalizedNewsItem(
-        source_type=SourceType.RBC,
+        source_type=source_type,
         external_id=external_id,
         published_at=datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc),
         source_metadata={"url": f"https://example.com/{external_id}"},
@@ -60,6 +60,16 @@ def test_upsert_news_indexes_each_item() -> None:
     assert client.index_calls[0]["index"] == "news_items"
     assert client.index_calls[0]["id"] == "id-1"
     assert client.index_calls[0]["body"]["source_type"] == "rbc"
+
+
+def test_upsert_news_supports_lenta_source_type() -> None:
+    client = _ClientStub()
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    count = repository.upsert_news([_sample_news_item("id-lenta", source_type=SourceType.LENTA)])
+
+    assert count == 1
+    assert client.index_calls[0]["body"]["source_type"] == "lenta"
 
 
 def test_set_summary_updates_summary_fields() -> None:

@@ -73,6 +73,22 @@ def test_latest_news_page_applies_source_and_class_filters() -> None:
     }
 
 
+def test_latest_news_page_applies_lenta_source_filter() -> None:
+    client = _FakeClient([{"hits": {"hits": []}}])
+    service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")
+
+    service.latest_news_page(size=20, source="lenta")
+
+    query = client.calls[0]["body"]["query"]
+    assert query == {
+        "bool": {
+            "must": [
+                {"term": {"source_type": "lenta"}},
+            ]
+        }
+    }
+
+
 def test_latest_news_page_returns_next_cursor_and_has_more_false_on_last_batch() -> None:
     client = _FakeClient([{"hits": {"hits": [_news_hit("id-1", "2026-03-16T09:59:00+00:00")]}}])
     service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")

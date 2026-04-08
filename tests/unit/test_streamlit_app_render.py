@@ -51,6 +51,9 @@ class _FakeStreamlit:
     def info(self, text: str) -> None:
         self.writes.append(text)
 
+    def error(self, text: str) -> None:
+        self.writes.append(text)
+
     def write(self, text: object) -> None:
         self.writes.append(str(text))
 
@@ -343,3 +346,38 @@ def test_app_main_guard_executes_render_app(monkeypatch) -> None:
     monkeypatch.delitem(sys.modules, "news_analyzer.apps.streamlit.app", raising=False)
 
     runpy.run_module("news_analyzer.apps.streamlit.app", run_name="__main__")
+
+
+def test_render_app_includes_lenta_source_in_selectbox(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    fake_service = _FakeService(pages=[NewsPage(items=[], next_cursor=None, has_more=False)], digest=None)
+    seen: dict[str, object] = {}
+
+    def _selectbox(label: str, options: list[str], index: int = 0) -> str:
+        seen["options"] = options
+        return options[index]
+
+    monkeypatch.setattr(app, "_query_service", lambda: fake_service)
+    monkeypatch.setattr(app, "st", fake_st)
+    monkeypatch.setattr(fake_st, "selectbox", _selectbox)
+
+    app.render_app()
+
+    assert seen["options"] == ["", "rbc", "lenta"]
+
+
+def test_render_app_handles_digest_backend_error(monkeypatch) -> None:
+    class _FailService:
+        def latest_hourly_digest_for_last_hour(self):
+            raise RuntimeError("opensearch down")
+
+        def latest_news_page(self, **kwargs):
+            return NewsPage(items=[], next_cursor=None, has_more=False)
+
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "_query_service", lambda: _FailService())
+    monkeypatch.setattr(app, "st", fake_st)
+
+    app.render_app()
+
+    assert any("OpenSearch недоступен" in line for line in fake_st.writes)

@@ -38,6 +38,9 @@ class _FakeStreamlit:
     def info(self, text: str) -> None:
         self.infos.append(text)
 
+    def error(self, text: str) -> None:
+        self.infos.append(text)
+
 
 class _FakeFeedService:
     def __init__(self, page: NewsPage) -> None:
@@ -168,3 +171,34 @@ def test_feed_query_service_builds_client_from_settings(monkeypatch) -> None:
     assert service.client == "client-object"
     assert service.news_index == "news_items"
     assert service.digest_index == "hourly_digests"
+
+
+def test_render_feed_includes_lenta_source_in_selectbox(monkeypatch) -> None:
+    fake_st = _FakeStreamlit()
+    seen: dict[str, object] = {}
+
+    def _selectbox(label: str, options: list[str], index: int = 0):
+        seen["options"] = options
+        return options[index]
+
+    fake_st.selectbox = _selectbox  # type: ignore[method-assign]
+    monkeypatch.setattr(feed, "st", fake_st)
+    monkeypatch.setattr(feed, "_query_service", lambda: _FakeFeedService(page=NewsPage(items=[], next_cursor=None, has_more=False)))
+
+    feed.render_feed()
+
+    assert seen["options"] == ["", "rbc", "lenta"]
+
+
+def test_render_feed_handles_backend_error(monkeypatch) -> None:
+    class _FailService:
+        def latest_news_page(self, source=None, class_label=None):
+            raise RuntimeError("opensearch down")
+
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(feed, "st", fake_st)
+    monkeypatch.setattr(feed, "_query_service", lambda: _FailService())
+
+    feed.render_feed()
+
+    assert any("OpenSearch is unavailable" in line for line in fake_st.infos)
