@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from news_analyzer.settings.app_settings import AppSettings
+from news_analyzer.settings.app_settings import AppSettings, _default_opensearch_hosts
 
 
 def test_app_settings_reads_gigachat_env(monkeypatch) -> None:
@@ -31,3 +31,16 @@ def test_app_settings_gigachat_defaults(monkeypatch) -> None:
     assert settings.gigachat_scope == "GIGACHAT_API_PERS"
     assert settings.gigachat_model == "GigaChat"
     assert settings.gigachat_verify_ssl is True
+
+
+def test_default_opensearch_hosts_prefers_explicit_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_HOSTS", "http://custom:9200")
+
+    assert _default_opensearch_hosts() == "http://custom:9200"
+
+
+def test_default_opensearch_hosts_uses_localhost_outside_docker(monkeypatch) -> None:
+    monkeypatch.delenv("OPENSEARCH_HOSTS", raising=False)
+    monkeypatch.setattr("news_analyzer.settings.app_settings.Path.exists", lambda self: False)
+
+    assert _default_opensearch_hosts() == "http://localhost:9200"

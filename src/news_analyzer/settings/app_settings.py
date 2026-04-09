@@ -5,6 +5,17 @@ from os import getenv
 from pathlib import Path
 
 
+def _default_opensearch_hosts() -> str:
+    explicit = getenv("OPENSEARCH_HOSTS")
+    if explicit:
+        return explicit
+    # In docker-compose network service name is resolvable as "opensearch".
+    if Path("/.dockerenv").exists():
+        return "http://opensearch:9200"
+    # For local host runs fallback to mapped docker port.
+    return "http://localhost:9200"
+
+
 @dataclass(frozen=True)
 class AppSettings:
     opensearch_hosts: list[str]
@@ -39,7 +50,7 @@ class AppSettings:
 
     @classmethod
     def from_env(cls) -> "AppSettings":
-        hosts_raw = getenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+        hosts_raw = _default_opensearch_hosts()
         return cls(
             opensearch_hosts=[value.strip() for value in hosts_raw.split(",") if value.strip()],
             opensearch_news_index=getenv("OPENSEARCH_NEWS_INDEX", "news_items"),
