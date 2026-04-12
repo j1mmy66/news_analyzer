@@ -49,3 +49,11 @@ class HourlyDigest:
     window_end: datetime
     summary: str
     news_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DedupMetadataUpdate:
+    external_id: str
+    is_canonical: bool
+    canonical_external_id: str
+    similarity_to_canonical: float

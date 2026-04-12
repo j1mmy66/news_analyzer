@@ -50,7 +50,7 @@ def test_item_summary_job_uses_legacy_key_fallback(monkeypatch) -> None:
         def __init__(self, client: object, index_name: str) -> None:
             return None
 
-        def get_recent_news_without_summary(self, limit: int = 100):
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
             return [{"external_id": "id-1", "cleaned_text": "text"}]
 
         def set_summary(self, external_id: str, summary: SummaryResult) -> None:
@@ -92,7 +92,7 @@ def test_hourly_digest_job_does_not_create_digest_when_summary_failed(monkeypatc
         def __init__(self, client: object, index_name: str) -> None:
             return None
 
-        def get_news_for_last_hour(self):
+        def get_canonical_news_for_last_hour(self):
             return [{"external_id": "id-1", "cleaned_text": "text"}]
 
         def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
@@ -149,7 +149,7 @@ def test_hourly_digest_job_uses_legacy_key_and_skips_when_no_texts(monkeypatch, 
         def __init__(self, client: object, index_name: str) -> None:
             return None
 
-        def get_news_for_last_hour(self):
+        def get_canonical_news_for_last_hour(self):
             return [{"external_id": "id-1", "cleaned_text": ""}]
 
         def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
@@ -202,7 +202,7 @@ def test_hourly_digest_job_successfully_creates_digest_and_links_news(monkeypatc
         def __init__(self, client: object, index_name: str) -> None:
             return None
 
-        def get_news_for_last_hour(self):
+        def get_canonical_news_for_last_hour(self):
             return [
                 {"external_id": "id-1", "cleaned_text": "text-1"},
                 {"external_id": "id-2", "cleaned_text": "text-2"},

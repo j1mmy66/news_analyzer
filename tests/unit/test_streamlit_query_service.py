@@ -6,6 +6,18 @@ from news_analyzer.apps.streamlit.query_service import StreamlitQueryService
 from news_analyzer.apps.streamlit.view_models import NewsCursor
 
 
+def _canonical_clause() -> dict[str, object]:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"dedup_is_canonical": True}},
+                {"bool": {"must_not": [{"exists": {"field": "dedup_is_canonical"}}]}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
 class _FakeClient:
     def __init__(self, responses: list[dict[str, object]]) -> None:
         self._responses = responses
@@ -54,6 +66,7 @@ def test_latest_news_page_uses_stable_sort_and_cursor() -> None:
     assert call_body["size"] == 2
     assert call_body["sort"] == [{"published_at": {"order": "desc"}}, {"external_id": {"order": "asc"}}]
     assert call_body["search_after"] == ["2026-03-16T11:00:00+00:00", "id-3"]
+    assert call_body["query"] == {"bool": {"must": [_canonical_clause()]}}
 
 
 def test_latest_news_page_applies_source_and_class_filters() -> None:
@@ -66,6 +79,7 @@ def test_latest_news_page_applies_source_and_class_filters() -> None:
     assert query == {
         "bool": {
             "must": [
+                _canonical_clause(),
                 {"term": {"source_type": "rbc"}},
                 {"term": {"class_label": "economy"}},
             ]
@@ -83,6 +97,7 @@ def test_latest_news_page_applies_lenta_source_filter() -> None:
     assert query == {
         "bool": {
             "must": [
+                _canonical_clause(),
                 {"term": {"source_type": "lenta"}},
             ]
         }

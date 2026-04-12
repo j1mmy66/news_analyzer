@@ -47,6 +47,12 @@ class AppSettings:
     ner_retry_backoff_seconds: float = 0.5
     ner_retry_backoff_cap_seconds: float = 5.0
     sources_config_path: Path = Path("src/news_analyzer/settings/sources.yaml")
+    dedup_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    dedup_similarity_threshold: float = 0.90
+    dedup_window_hours: int = 3
+    dedup_lookback_hours: int = 24
+    dedup_text_chars: int = 1000
+    dedup_device: str = "cpu"
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -81,4 +87,13 @@ class AppSettings:
             ner_retry_backoff_seconds=float(getenv("NER_RETRY_BACKOFF_SECONDS", "0.5")),
             ner_retry_backoff_cap_seconds=float(getenv("NER_RETRY_BACKOFF_CAP_SECONDS", "5")),
             sources_config_path=Path(getenv("SOURCES_CONFIG_PATH", "src/news_analyzer/settings/sources.yaml")),
+            dedup_model_name=getenv(
+                "DEDUP_MODEL_NAME",
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            ),
+            dedup_similarity_threshold=float(getenv("DEDUP_SIMILARITY_THRESHOLD", "0.90")),
+            dedup_window_hours=int(getenv("DEDUP_WINDOW_HOURS", "3")),
+            dedup_lookback_hours=int(getenv("DEDUP_LOOKBACK_HOURS", "24")),
+            dedup_text_chars=int(getenv("DEDUP_TEXT_CHARS", "1000")),
+            dedup_device=getenv("DEDUP_DEVICE", "cpu"),
         )

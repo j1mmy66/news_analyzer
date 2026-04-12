@@ -44,7 +44,7 @@ def run_hourly_digest_job() -> str | None:
     news_repository = NewsRepository(client, settings.opensearch_news_index)
     digest_repository = HourlyDigestRepository(client, settings.opensearch_digests_index)
 
-    items = news_repository.get_news_for_last_hour()
+    items = news_repository.get_canonical_news_for_last_hour()
     texts = [str(item.get("cleaned_text") or "") for item in items if item.get("cleaned_text")]
     ids = [str(item["external_id"]) for item in items]
     if not texts:

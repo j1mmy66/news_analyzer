@@ -30,7 +30,11 @@
       "summary_status": {"type": "keyword"},
       "summary_error_code": {"type": "keyword"},
       "summary_updated_at": {"type": "date"},
-      "hourly_digest_id": {"type": "keyword"}
+      "hourly_digest_id": {"type": "keyword"},
+      "dedup_is_canonical": {"type": "boolean"},
+      "dedup_canonical_external_id": {"type": "keyword"},
+      "dedup_similarity_to_canonical": {"type": "float"},
+      "dedup_updated_at": {"type": "date"}
     }
   }
 }

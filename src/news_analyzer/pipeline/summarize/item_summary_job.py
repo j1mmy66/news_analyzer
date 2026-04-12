@@ -47,7 +47,7 @@ def run_item_summary_job(limit: int = 100) -> int:
     )
 
     processed = 0
-    for item in repository.get_recent_news_without_summary(limit=limit):
+    for item in repository.get_recent_canonical_news_without_summary(limit=limit):
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
         result = summary_service.summarize_item(text)

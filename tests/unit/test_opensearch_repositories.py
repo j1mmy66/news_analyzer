@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from news_analyzer.domain.enums import ClassLabel, ProcessingStatus, SourceType
-from news_analyzer.domain.models import ClassificationResult, Entity, HourlyDigest, NormalizedNewsItem, SummaryResult
+from news_analyzer.domain.models import (
+    ClassificationResult,
+    DedupMetadataUpdate,
+    Entity,
+    HourlyDigest,
+    NormalizedNewsItem,
+    SummaryResult,
+)
 from news_analyzer.storage.opensearch.repositories import HourlyDigestRepository, NewsRepository, ProcessingStateRepository
 
 
@@ -60,6 +67,10 @@ def test_upsert_news_indexes_each_item() -> None:
     assert client.index_calls[0]["index"] == "news_items"
     assert client.index_calls[0]["id"] == "id-1"
     assert client.index_calls[0]["body"]["source_type"] == "rbc"
+    assert client.index_calls[0]["body"]["dedup_is_canonical"] is True
+    assert client.index_calls[0]["body"]["dedup_canonical_external_id"] == "id-1"
+    assert client.index_calls[0]["body"]["dedup_similarity_to_canonical"] == 1.0
+    assert "dedup_updated_at" in client.index_calls[0]["body"]
 
 
 def test_upsert_news_supports_lenta_source_type() -> None:
@@ -103,6 +114,41 @@ def test_set_hourly_digest_link_updates_each_news_item() -> None:
     assert len(client.update_calls) == 2
     assert {call["id"] for call in client.update_calls} == {"id-1", "id-2"}
     assert all(call["body"] == {"doc": {"hourly_digest_id": "digest-1"}} for call in client.update_calls)
+
+
+def test_set_dedup_metadata_bulk_updates_each_news_item() -> None:
+    client = _ClientStub()
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    repository.set_dedup_metadata_bulk(
+        [
+            DedupMetadataUpdate(
+                external_id="id-1",
+                is_canonical=True,
+                canonical_external_id="id-1",
+                similarity_to_canonical=1.0,
+            ),
+            DedupMetadataUpdate(
+                external_id="id-2",
+                is_canonical=False,
+                canonical_external_id="id-1",
+                similarity_to_canonical=0.95,
+            ),
+        ],
+        updated_at=datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(client.update_calls) == 2
+    first = client.update_calls[0]
+    second = client.update_calls[1]
+    assert first["id"] == "id-1"
+    assert first["body"]["doc"]["dedup_is_canonical"] is True
+    assert first["body"]["doc"]["dedup_canonical_external_id"] == "id-1"
+    assert first["body"]["doc"]["dedup_similarity_to_canonical"] == 1.0
+    assert second["id"] == "id-2"
+    assert second["body"]["doc"]["dedup_is_canonical"] is False
+    assert second["body"]["doc"]["dedup_canonical_external_id"] == "id-1"
+    assert second["body"]["doc"]["dedup_similarity_to_canonical"] == 0.95
 
 
 def test_set_enrichment_writes_entities_and_classification() -> None:
@@ -151,6 +197,31 @@ def test_get_recent_news_without_summary_builds_query_and_maps_hits(monkeypatch)
     assert call["index"] == "news_items"
     assert call["body"]["size"] == 7
     assert call["body"]["query"]["bool"]["must_not"] == [{"exists": {"field": "summary"}}]
+
+
+def test_get_recent_canonical_news_without_summary_builds_query(monkeypatch) -> None:
+    fixed_now = datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc)
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz):
+            assert tz == timezone.utc
+            return fixed_now
+
+    monkeypatch.setattr("news_analyzer.storage.opensearch.repositories.datetime", _FakeDatetime)
+
+    client = _ClientStub()
+    client.search_response = {"hits": {"hits": []}}
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    repository.get_recent_canonical_news_without_summary(limit=5)
+
+    call = client.search_calls[0]["body"]
+    assert call["size"] == 5
+    assert call["query"]["bool"]["must_not"] == [{"exists": {"field": "summary"}}]
+    canonical_clause = call["query"]["bool"]["must"][1]
+    assert canonical_clause["bool"]["minimum_should_match"] == 1
+    assert canonical_clause["bool"]["should"][0] == {"term": {"dedup_is_canonical": True}}
 
 
 def test_get_recent_news_without_enrichment_builds_query_and_maps_hits(monkeypatch) -> None:
@@ -209,6 +280,52 @@ def test_get_news_for_last_hours_and_last_hour_queries(monkeypatch) -> None:
     assert first_call["size"] == 11
     assert second_call["size"] == 2
     assert first_call["sort"] == [{"published_at": {"order": "asc"}}]
+
+
+def test_get_canonical_news_for_last_hour_adds_canonical_clause(monkeypatch) -> None:
+    fixed_now = datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc)
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz):
+            assert tz == timezone.utc
+            return fixed_now
+
+    monkeypatch.setattr("news_analyzer.storage.opensearch.repositories.datetime", _FakeDatetime)
+
+    client = _ClientStub()
+    client.search_response = {"hits": {"hits": []}}
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    repository.get_canonical_news_for_last_hour(limit=4)
+
+    body = client.search_calls[0]["body"]
+    assert body["size"] == 4
+    query = body["query"]
+    assert query["bool"]["must"][1]["bool"]["should"][0] == {"term": {"dedup_is_canonical": True}}
+
+
+def test_get_news_for_dedup_candidates_builds_window_query(monkeypatch) -> None:
+    fixed_now = datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc)
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz):
+            assert tz == timezone.utc
+            return fixed_now
+
+    monkeypatch.setattr("news_analyzer.storage.opensearch.repositories.datetime", _FakeDatetime)
+
+    client = _ClientStub()
+    client.search_response = {"hits": {"hits": [{"_id": "id-1", "_source": {"published_at": "2026-03-17T07:50:00+00:00"}}]}}
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    rows = repository.get_news_for_dedup_candidates(lookback_hours=24, limit=50)
+
+    assert rows[0]["external_id"] == "id-1"
+    body = client.search_calls[0]["body"]
+    assert body["size"] == 50
+    assert body["sort"] == [{"published_at": {"order": "asc"}}, {"external_id": {"order": "asc"}}]
 
 
 def test_hourly_digest_repository_upsert_indexes_digest() -> None:
