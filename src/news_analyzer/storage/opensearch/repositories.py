@@ -31,7 +31,8 @@ class NewsRepository:
         self._index_name = index_name
 
     def upsert_news(self, items: Iterable[NormalizedNewsItem]) -> int:
-        success = 0
+        created = 0
+        skipped_conflicts = 0
         dedup_updated_at = datetime.now(timezone.utc).isoformat()
         for item in items:
             body = {
@@ -46,9 +47,23 @@ class NewsRepository:
                 "dedup_similarity_to_canonical": 1.0,
                 "dedup_updated_at": dedup_updated_at,
             }
-            self._client.index(index=self._index_name, id=item.external_id, body=body)
-            success += 1
-        return success
+            try:
+                self._client.index(
+                    index=self._index_name,
+                    id=item.external_id,
+                    op_type="create",
+                    body=body,
+                )
+                created += 1
+            except ConflictError:
+                skipped_conflicts += 1
+
+        logger.info(
+            "News ingest upsert completed: created=%s skipped_conflicts=%s",
+            created,
+            skipped_conflicts,
+        )
+        return created
 
     def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
         body = {

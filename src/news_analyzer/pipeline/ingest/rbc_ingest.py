@@ -41,12 +41,12 @@ def run_rbc_ingest() -> int:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to parse RBC row")
 
-    stored = repository.upsert_news(normalized)
+    created = repository.upsert_news(normalized)
     stats = collector.last_stats
     if stats.fatal_errors > 0:
         raise RuntimeError(
             "RBC ingest had fatal fetch failures "
             f"(sections={stats.failed_sections}, fetch_errors={stats.fetch_errors_total})"
         )
-    logger.info("Stored %s RBC items", stored)
-    return stored
+    logger.info("Created %s RBC items", created)
+    return created

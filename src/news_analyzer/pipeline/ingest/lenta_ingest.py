@@ -41,10 +41,10 @@ def run_lenta_ingest() -> int:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to parse Lenta row")
 
-    stored = repository.upsert_news(normalized)
+    created = repository.upsert_news(normalized)
     stats = collector.last_stats
     if stats.fatal_errors > 0:
         raise RuntimeError("Lenta ingest had fatal fetch failures " f"(fetch_errors={stats.fetch_errors})")
 
-    logger.info("Stored %s Lenta items", stored)
-    return stored
+    logger.info("Created %s Lenta items", created)
+    return created

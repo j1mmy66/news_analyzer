@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from opensearchpy.exceptions import ConflictError
+
 from news_analyzer.domain.enums import ClassLabel, ProcessingStatus, SourceType
 from news_analyzer.domain.models import (
     ClassificationResult,
@@ -45,6 +48,30 @@ class _ClientStub:
         return self.get_response
 
 
+class _ConflictClientStub(_ClientStub):
+    def __init__(self, conflict_ids: set[str]) -> None:
+        super().__init__()
+        self._conflict_ids = conflict_ids
+
+    def index(self, **kwargs) -> None:
+        self.index_calls.append(kwargs)
+        if kwargs["id"] in self._conflict_ids:
+            raise ConflictError(409, "version_conflict_engine_exception", "conflict")
+
+
+class _InMemoryCreateOnlyClient:
+    def __init__(self, existing_docs: dict[str, dict[str, object]] | None = None) -> None:
+        self.index_calls: list[dict[str, object]] = []
+        self.docs: dict[str, dict[str, object]] = existing_docs or {}
+
+    def index(self, **kwargs) -> None:
+        self.index_calls.append(kwargs)
+        doc_id = str(kwargs["id"])
+        if kwargs.get("op_type") == "create" and doc_id in self.docs:
+            raise ConflictError(409, "version_conflict_engine_exception", "conflict")
+        self.docs[doc_id] = kwargs["body"]
+
+
 def _sample_news_item(external_id: str = "id-1", source_type: SourceType = SourceType.RBC) -> NormalizedNewsItem:
     return NormalizedNewsItem(
         source_type=source_type,
@@ -56,7 +83,7 @@ def _sample_news_item(external_id: str = "id-1", source_type: SourceType = Sourc
     )
 
 
-def test_upsert_news_indexes_each_item() -> None:
+def test_upsert_news_creates_each_item() -> None:
     client = _ClientStub()
     repository = NewsRepository(client=client, index_name="news_items")
 
@@ -66,6 +93,7 @@ def test_upsert_news_indexes_each_item() -> None:
     assert len(client.index_calls) == 2
     assert client.index_calls[0]["index"] == "news_items"
     assert client.index_calls[0]["id"] == "id-1"
+    assert client.index_calls[0]["op_type"] == "create"
     assert client.index_calls[0]["body"]["source_type"] == "rbc"
     assert client.index_calls[0]["body"]["dedup_is_canonical"] is True
     assert client.index_calls[0]["body"]["dedup_canonical_external_id"] == "id-1"
@@ -81,6 +109,52 @@ def test_upsert_news_supports_lenta_source_type() -> None:
 
     assert count == 1
     assert client.index_calls[0]["body"]["source_type"] == "lenta"
+
+
+def test_upsert_news_skips_conflicts_and_counts_only_created() -> None:
+    client = _ConflictClientStub(conflict_ids={"id-2"})
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    count = repository.upsert_news([_sample_news_item("id-1"), _sample_news_item("id-2")])
+
+    assert count == 1
+    assert len(client.index_calls) == 2
+
+
+def test_upsert_news_reraises_non_conflict_errors() -> None:
+    class _ErrorClient(_ClientStub):
+        def index(self, **kwargs) -> None:
+            self.index_calls.append(kwargs)
+            if kwargs["id"] == "id-2":
+                raise RuntimeError("unexpected error")
+
+    client = _ErrorClient()
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    with pytest.raises(RuntimeError, match="unexpected error"):
+        repository.upsert_news([_sample_news_item("id-1"), _sample_news_item("id-2")])
+
+
+def test_upsert_news_does_not_overwrite_existing_enriched_document() -> None:
+    existing_doc = {
+        "external_id": "id-1",
+        "summary": "old summary",
+        "summary_status": "success",
+        "class_label": "economy",
+        "class_confidence": 0.9,
+        "hourly_digest_id": "digest-1",
+        "entities": [{"text": "Москва", "label": "LOC"}],
+        "dedup_is_canonical": False,
+    }
+    client = _InMemoryCreateOnlyClient(existing_docs={"id-1": existing_doc.copy()})
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    count = repository.upsert_news([_sample_news_item("id-1")])
+
+    assert count == 0
+    assert len(client.index_calls) == 1
+    assert client.index_calls[0]["op_type"] == "create"
+    assert client.docs["id-1"] == existing_doc
 
 
 def test_set_summary_updates_summary_fields() -> None:
