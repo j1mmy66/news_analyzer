@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from news_analyzer.pipeline.ingest._status_policy import _finalize_ingest_status
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.sources.lenta.collector import LentaNewsCollector
 from news_analyzer.sources.lenta.config import LentaCollectorConfig
@@ -43,8 +44,19 @@ def run_lenta_ingest() -> int:
 
     created = repository.upsert_news(normalized)
     stats = collector.last_stats
-    if stats.fatal_errors > 0:
-        raise RuntimeError("Lenta ingest had fatal fetch failures " f"(fetch_errors={stats.fetch_errors})")
-
-    logger.info("Created %s Lenta items", created)
-    return created
+    return _finalize_ingest_status(
+        logger=logger,
+        source_name="Lenta",
+        created=created,
+        collected_rows=len(rows),
+        normalized_rows=len(normalized),
+        fatal_errors=stats.fatal_errors,
+        fatal_error_message="Lenta ingest had fatal fetch failures " f"(fetch_errors={stats.fetch_errors})",
+        extra_quality_metrics={
+            "fetch_errors": stats.fetch_errors,
+            "fetched": stats.fetched,
+            "parsed": stats.parsed,
+            "full_text_ok": stats.full_text_ok,
+            "skipped_no_full_text": stats.skipped_no_full_text,
+        },
+    )

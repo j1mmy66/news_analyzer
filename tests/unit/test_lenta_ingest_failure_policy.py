@@ -58,6 +58,49 @@ def test_run_lenta_ingest_raises_on_fatal_fetch_failures(monkeypatch: pytest.Mon
         lenta_ingest.run_lenta_ingest()
 
 
+def test_run_lenta_ingest_degraded_success_when_fatal_but_created(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    class _Collector:
+        def __init__(self, config: LentaCollectorConfig) -> None:
+            self.last_stats = LentaCollectStats(
+                fatal_errors=1,
+                fetch_errors=2,
+                fetched=3,
+                parsed=2,
+                full_text_ok=1,
+                skipped_no_full_text=1,
+            )
+
+        def collect_latest(self) -> list[dict[str, object]]:
+            return [{"url": "https://lenta.ru/news/x"}]
+
+    monkeypatch.setattr(lenta_ingest.AppSettings, "from_env", classmethod(lambda cls: _FakeSettings()))
+    monkeypatch.setattr(
+        lenta_ingest.LentaCollectorConfig,
+        "from_sources_file",
+        classmethod(lambda cls, path: LentaCollectorConfig()),
+    )
+    monkeypatch.setattr(lenta_ingest, "LentaNewsCollector", _Collector)
+    monkeypatch.setattr(lenta_ingest, "build_client", lambda config: object())
+    monkeypatch.setattr(lenta_ingest, "OpenSearchIndexManager", _FakeIndexManager)
+    monkeypatch.setattr(lenta_ingest, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(lenta_ingest, "parse_lenta_article", lambda row: object())
+    caplog.set_level("WARNING")
+
+    result = lenta_ingest.run_lenta_ingest()
+
+    assert result == 1
+    assert "status=degraded" in caplog.text
+    assert "created=1" in caplog.text
+    assert "collected_rows=1" in caplog.text
+    assert "normalized_rows=1" in caplog.text
+    assert "fatal_errors=1" in caplog.text
+    assert "fetch_errors=2" in caplog.text
+    assert "fetched=3" in caplog.text
+    assert "parsed=2" in caplog.text
+    assert "full_text_ok=1" in caplog.text
+    assert "skipped_no_full_text=1" in caplog.text
+
+
 def test_run_lenta_ingest_returns_stored_count_without_fatal_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Collector:
         def __init__(self, config: LentaCollectorConfig) -> None:
