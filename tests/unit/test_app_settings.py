@@ -52,6 +52,21 @@ def test_app_settings_reads_dedup_env(monkeypatch) -> None:
     assert settings.dedup_device == "cpu"
 
 
+def test_app_settings_reads_text_limit_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+    monkeypatch.setenv("NER_TEXT_MAX_CHARS", "3100")
+    monkeypatch.setenv("SUMMARY_ITEM_TEXT_MAX_CHARS", "5100")
+    monkeypatch.setenv("SUMMARY_HOURLY_ITEM_MAX_CHARS", "1600")
+    monkeypatch.setenv("SUMMARY_HOURLY_TOTAL_MAX_CHARS", "11000")
+
+    settings = AppSettings.from_env()
+
+    assert settings.ner_text_max_chars == 3100
+    assert settings.summary_item_text_max_chars == 5100
+    assert settings.summary_hourly_item_max_chars == 1600
+    assert settings.summary_hourly_total_max_chars == 11000
+
+
 def test_app_settings_dedup_defaults(monkeypatch) -> None:
     monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
     monkeypatch.delenv("DEDUP_MODEL_NAME", raising=False)
@@ -69,6 +84,21 @@ def test_app_settings_dedup_defaults(monkeypatch) -> None:
     assert settings.dedup_lookback_hours == 24
     assert settings.dedup_text_chars == 1000
     assert settings.dedup_device == "cpu"
+
+
+def test_app_settings_text_limit_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+    monkeypatch.delenv("NER_TEXT_MAX_CHARS", raising=False)
+    monkeypatch.delenv("SUMMARY_ITEM_TEXT_MAX_CHARS", raising=False)
+    monkeypatch.delenv("SUMMARY_HOURLY_ITEM_MAX_CHARS", raising=False)
+    monkeypatch.delenv("SUMMARY_HOURLY_TOTAL_MAX_CHARS", raising=False)
+
+    settings = AppSettings.from_env()
+
+    assert settings.ner_text_max_chars == 3000
+    assert settings.summary_item_text_max_chars == 5000
+    assert settings.summary_hourly_item_max_chars == 1500
+    assert settings.summary_hourly_total_max_chars == 10000
 
 
 def test_default_opensearch_hosts_prefers_explicit_env(monkeypatch) -> None:

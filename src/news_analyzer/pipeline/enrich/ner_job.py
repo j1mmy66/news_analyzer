@@ -7,6 +7,7 @@ from news_analyzer.domain.enums import ClassLabel, ProcessingStatus
 from news_analyzer.domain.models import ClassificationResult, Entity
 from news_analyzer.nlp.classification.local_model import HFNewsClassificationModel
 from news_analyzer.nlp.ner.local_model import NatashaSlovnetNERModel
+from news_analyzer.pipeline.orchestration.text_preprocessor import truncate_text
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_client
 from news_analyzer.storage.opensearch.repositories import NewsRepository
@@ -76,10 +77,15 @@ def run_ner_job(limit: int = 300) -> int:
     )
 
     processed = 0
+    text_truncated_count = 0
     for item in repository.get_recent_news_without_enrichment(limit=limit, hours=24):
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
         prepared_text = _trim_after_template_phrase(text)
+        truncated = truncate_text(prepared_text, settings.ner_text_max_chars)
+        prepared_text = truncated.text
+        if truncated.was_truncated:
+            text_truncated_count += 1
         ner_error: Exception | None = None
         classification_error: Exception | None = None
 
@@ -132,5 +138,10 @@ def run_ner_job(limit: int = 300) -> int:
         except Exception:  # noqa: BLE001
             logger.exception("Persistence failed for %s", external_id)
 
-    logger.info("Enrichment completed for %s items", processed)
+    logger.info(
+        "Enrichment completed: processed=%s text_truncated_count=%s limit_chars=%s",
+        processed,
+        text_truncated_count,
+        settings.ner_text_max_chars,
+    )
     return processed

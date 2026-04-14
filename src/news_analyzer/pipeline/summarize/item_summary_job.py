@@ -43,7 +43,10 @@ def run_item_summary_job(limit: int = 100) -> int:
             timeout_seconds=settings.gigachat_timeout_seconds,
             max_retries=settings.gigachat_max_retries,
             verify_ssl=settings.gigachat_verify_ssl,
-        )
+        ),
+        item_text_max_chars=settings.summary_item_text_max_chars,
+        hourly_item_text_max_chars=settings.summary_hourly_item_max_chars,
+        hourly_total_text_max_chars=settings.summary_hourly_total_max_chars,
     )
 
     processed = 0

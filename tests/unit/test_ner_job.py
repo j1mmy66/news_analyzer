@@ -122,6 +122,38 @@ def test_run_ner_job_retries_then_succeeds(tmp_path: Path, monkeypatch) -> None:
     assert repo.calls[0]["enrichment_error_code"] is None
 
 
+def test_run_ner_job_truncates_long_text_before_models(tmp_path: Path, monkeypatch, caplog) -> None:
+    long_text = "x" * 4000
+    repo = _RepoStub([{"external_id": "n2b", "cleaned_text": long_text}])
+    settings = _settings(tmp_path)
+    seen: dict[str, str] = {}
+
+    class _NERModel:
+        def extract(self, text: str) -> list[Entity]:
+            seen["ner"] = text
+            return []
+
+    class _Classifier:
+        def classify(self, text: str) -> ClassificationResult:
+            seen["clf"] = text
+            return ClassificationResult(class_label=ClassLabel.ECONOMY, class_confidence=0.7, model_version="stub")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _Classifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _NERModel())
+    caplog.set_level("INFO")
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert len(seen["ner"]) == settings.ner_text_max_chars
+    assert len(seen["clf"]) == settings.ner_text_max_chars
+    assert "text_truncated_count=1" in caplog.text
+    assert f"limit_chars={settings.ner_text_max_chars}" in caplog.text
+
+
 def test_run_ner_job_persists_empty_entities_after_ner_failures(tmp_path: Path, monkeypatch) -> None:
     repo = _RepoStub([{"external_id": "n3", "cleaned_text": "Госдума"}])
     settings = _settings(tmp_path)

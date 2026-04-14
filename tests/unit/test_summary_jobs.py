@@ -22,6 +22,9 @@ class _SettingsNoCredentials:
     gigachat_timeout_seconds = 15.0
     gigachat_max_retries = 3
     gigachat_verify_ssl = True
+    summary_item_text_max_chars = 5000
+    summary_hourly_item_max_chars = 1500
+    summary_hourly_total_max_chars = 10000
 
 
 class _SettingsLegacyCredential(_SettingsNoCredentials):
@@ -57,7 +60,7 @@ def test_item_summary_job_uses_legacy_key_fallback(monkeypatch) -> None:
             self.saved.append(summary)
 
     class _FakeSummaryService:
-        def __init__(self, client: object) -> None:
+        def __init__(self, client: object, **kwargs) -> None:
             return None
 
         def summarize_item(self, text: str) -> SummaryResult:
@@ -106,7 +109,7 @@ def test_hourly_digest_job_does_not_create_digest_when_summary_failed(monkeypatc
             calls["digest_upserted"] = True
 
     class _FakeSummaryService:
-        def __init__(self, client: object) -> None:
+        def __init__(self, client: object, **kwargs) -> None:
             return None
 
         def summarize_hour(self, texts: list[str]) -> SummaryResult:
@@ -163,7 +166,7 @@ def test_hourly_digest_job_uses_legacy_key_and_skips_when_no_texts(monkeypatch, 
             raise AssertionError("Should not upsert digest when texts are empty")
 
     class _FakeSummaryService:
-        def __init__(self, client: object) -> None:
+        def __init__(self, client: object, **kwargs) -> None:
             raise AssertionError("SummaryService should not be created without texts")
 
     class _FakeGigaChatClient:
@@ -219,7 +222,7 @@ def test_hourly_digest_job_successfully_creates_digest_and_links_news(monkeypatc
             calls["digest"] = digest
 
     class _FakeSummaryService:
-        def __init__(self, client: object) -> None:
+        def __init__(self, client: object, **kwargs) -> None:
             return None
 
         def summarize_hour(self, texts: list[str]) -> SummaryResult:

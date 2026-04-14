@@ -46,6 +46,10 @@ class AppSettings:
     ner_max_retries: int = 2
     ner_retry_backoff_seconds: float = 0.5
     ner_retry_backoff_cap_seconds: float = 5.0
+    ner_text_max_chars: int = 3000
+    summary_item_text_max_chars: int = 5000
+    summary_hourly_item_max_chars: int = 1500
+    summary_hourly_total_max_chars: int = 10000
     sources_config_path: Path = Path("src/news_analyzer/settings/sources.yaml")
     dedup_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     dedup_similarity_threshold: float = 0.90
@@ -86,6 +90,10 @@ class AppSettings:
             ner_max_retries=int(getenv("NER_MAX_RETRIES", "2")),
             ner_retry_backoff_seconds=float(getenv("NER_RETRY_BACKOFF_SECONDS", "0.5")),
             ner_retry_backoff_cap_seconds=float(getenv("NER_RETRY_BACKOFF_CAP_SECONDS", "5")),
+            ner_text_max_chars=int(getenv("NER_TEXT_MAX_CHARS", "3000")),
+            summary_item_text_max_chars=int(getenv("SUMMARY_ITEM_TEXT_MAX_CHARS", "5000")),
+            summary_hourly_item_max_chars=int(getenv("SUMMARY_HOURLY_ITEM_MAX_CHARS", "1500")),
+            summary_hourly_total_max_chars=int(getenv("SUMMARY_HOURLY_TOTAL_MAX_CHARS", "10000")),
             sources_config_path=Path(getenv("SOURCES_CONFIG_PATH", "src/news_analyzer/settings/sources.yaml")),
             dedup_model_name=getenv(
                 "DEDUP_MODEL_NAME",
