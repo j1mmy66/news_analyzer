@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from news_analyzer.domain.enums import ClassLabel
+from news_analyzer.domain.enums import ClassLabel, ProcessingStatus
 from news_analyzer.domain.models import ClassificationResult, Entity
 from news_analyzer.pipeline.enrich import ner_job
 from news_analyzer.settings.app_settings import AppSettings
@@ -11,14 +11,30 @@ from news_analyzer.settings.app_settings import AppSettings
 class _RepoStub:
     def __init__(self, items: list[dict[str, object]]) -> None:
         self._items = items
-        self.calls: list[tuple[str, list[Entity], ClassificationResult]] = []
+        self.calls: list[dict[str, object]] = []
 
     def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
         assert hours == 24
         return self._items[:limit]
 
-    def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
-        self.calls.append((external_id, entities, classification))
+    def set_enrichment(
+        self,
+        external_id: str,
+        entities: list[Entity],
+        classification: ClassificationResult,
+        *,
+        enrichment_status: ProcessingStatus = ProcessingStatus.SUCCESS,
+        enrichment_error_code: str | None = None,
+    ) -> None:
+        self.calls.append(
+            {
+                "external_id": external_id,
+                "entities": entities,
+                "classification": classification,
+                "enrichment_status": enrichment_status,
+                "enrichment_error_code": enrichment_error_code,
+            }
+        )
 
 
 class _ClassifierStub:
@@ -72,7 +88,9 @@ def test_run_ner_job_success_path(tmp_path: Path, monkeypatch) -> None:
 
     assert processed == 1
     assert len(repo.calls) == 1
-    assert repo.calls[0][1][0].label == "PER"
+    assert repo.calls[0]["entities"][0].label == "PER"
+    assert repo.calls[0]["enrichment_status"] == ProcessingStatus.SUCCESS
+    assert repo.calls[0]["enrichment_error_code"] is None
 
 
 def test_run_ner_job_retries_then_succeeds(tmp_path: Path, monkeypatch) -> None:
@@ -99,7 +117,9 @@ def test_run_ner_job_retries_then_succeeds(tmp_path: Path, monkeypatch) -> None:
     assert processed == 1
     assert model.calls == 2
     assert delays == [0.01]
-    assert len(repo.calls[0][1]) == 1
+    assert len(repo.calls[0]["entities"]) == 1
+    assert repo.calls[0]["enrichment_status"] == ProcessingStatus.SUCCESS
+    assert repo.calls[0]["enrichment_error_code"] is None
 
 
 def test_run_ner_job_persists_empty_entities_after_ner_failures(tmp_path: Path, monkeypatch) -> None:
@@ -118,7 +138,9 @@ def test_run_ner_job_persists_empty_entities_after_ner_failures(tmp_path: Path, 
 
     assert processed == 1
     assert len(repo.calls) == 1
-    assert repo.calls[0][1] == []
+    assert repo.calls[0]["entities"] == []
+    assert repo.calls[0]["enrichment_status"] == ProcessingStatus.FAILED
+    assert repo.calls[0]["enrichment_error_code"] == "NER_RuntimeError"
     assert delays == [0.01, 0.02]
 
 
@@ -144,8 +166,38 @@ def test_run_ner_job_fallbacks_to_other_on_classification_failure(tmp_path: Path
 
     assert processed == 1
     assert len(repo.calls) == 1
-    assert repo.calls[0][2].class_label == ClassLabel.OTHER
-    assert repo.calls[0][2].class_confidence == 0.0
+    assert repo.calls[0]["classification"].class_label == ClassLabel.OTHER
+    assert repo.calls[0]["classification"].class_confidence == 0.0
+    assert repo.calls[0]["enrichment_status"] == ProcessingStatus.FAILED
+    assert repo.calls[0]["enrichment_error_code"] == "CLASSIFICATION_RuntimeError"
+
+
+def test_run_ner_job_marks_failed_when_ner_and_classification_fail(tmp_path: Path, monkeypatch) -> None:
+    repo = _RepoStub([{"external_id": "n4b", "cleaned_text": "Текст новости"}])
+    settings = _settings(tmp_path)
+
+    class _FailingNERModel:
+        def extract(self, _text: str) -> list[Entity]:
+            raise RuntimeError("ner-fail")
+
+    class _FailingClassifier:
+        def classify(self, _text: str) -> ClassificationResult:
+            raise RuntimeError("clf-fail")
+
+    monkeypatch.setattr(ner_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(ner_job, "build_client", lambda _config: object())
+    monkeypatch.setattr(ner_job, "NewsRepository", lambda _client, _index: repo)
+    monkeypatch.setattr(ner_job, "HFNewsClassificationModel", lambda **kwargs: _FailingClassifier())
+    monkeypatch.setattr(ner_job, "NatashaSlovnetNERModel", lambda **kwargs: _FailingNERModel())
+
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert len(repo.calls) == 1
+    assert repo.calls[0]["entities"] == []
+    assert repo.calls[0]["classification"].class_label == ClassLabel.OTHER
+    assert repo.calls[0]["enrichment_status"] == ProcessingStatus.FAILED
+    assert repo.calls[0]["enrichment_error_code"] == "NER_AND_CLASSIFICATION_FAILED"
 
 
 def test_run_ner_job_trims_template_phrase_for_ner_and_classification(tmp_path: Path, monkeypatch) -> None:
@@ -252,7 +304,15 @@ def test_extract_with_retry_returns_empty_when_no_attempts_configured() -> None:
 
 def test_run_ner_job_logs_persistence_error_and_continues(tmp_path: Path, monkeypatch) -> None:
     class _FailingRepo(_RepoStub):
-        def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
+        def set_enrichment(
+            self,
+            external_id: str,
+            entities: list[Entity],
+            classification: ClassificationResult,
+            *,
+            enrichment_status: ProcessingStatus = ProcessingStatus.SUCCESS,
+            enrichment_error_code: str | None = None,
+        ) -> None:
             raise RuntimeError("persist-failed")
 
     repo = _FailingRepo([{"external_id": "n8", "cleaned_text": "Текст"}])

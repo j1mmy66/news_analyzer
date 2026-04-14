@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
-from news_analyzer.domain.enums import ClassLabel
+from news_analyzer.domain.enums import ClassLabel, ProcessingStatus
 from news_analyzer.domain.models import ClassificationResult, Entity
 from news_analyzer.nlp.classification.local_model import HFNewsClassificationModel
 from news_analyzer.nlp.ner.local_model import NatashaSlovnetNERModel
@@ -80,6 +80,8 @@ def run_ner_job(limit: int = 300) -> int:
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
         prepared_text = _trim_after_template_phrase(text)
+        ner_error: Exception | None = None
+        classification_error: Exception | None = None
 
         try:
             entities = _extract_with_retry(
@@ -89,13 +91,15 @@ def run_ner_job(limit: int = 300) -> int:
                 backoff_seconds=settings.ner_retry_backoff_seconds,
                 backoff_cap_seconds=settings.ner_retry_backoff_cap_seconds,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            ner_error = exc
             logger.exception("NER failed for %s; storing empty entities", external_id)
             entities = []
 
         try:
             classification = classifier.classify(prepared_text)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            classification_error = exc
             logger.exception("Classification failed for %s; storing OTHER label", external_id)
             classification = ClassificationResult(
                 class_label=ClassLabel.OTHER,
@@ -103,8 +107,27 @@ def run_ner_job(limit: int = 300) -> int:
                 model_version="hf-any-news-v1",
             )
 
+        if ner_error and classification_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code: str | None = "NER_AND_CLASSIFICATION_FAILED"
+        elif ner_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code = f"NER_{ner_error.__class__.__name__}"
+        elif classification_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code = f"CLASSIFICATION_{classification_error.__class__.__name__}"
+        else:
+            enrichment_status = ProcessingStatus.SUCCESS
+            enrichment_error_code = None
+
         try:
-            repository.set_enrichment(external_id, entities, classification)
+            repository.set_enrichment(
+                external_id,
+                entities,
+                classification,
+                enrichment_status=enrichment_status,
+                enrichment_error_code=enrichment_error_code,
+            )
             processed += 1
         except Exception:  # noqa: BLE001
             logger.exception("Persistence failed for %s", external_id)

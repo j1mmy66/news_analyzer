@@ -9,6 +9,7 @@ from typing import Iterable
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import ConflictError
 
+from news_analyzer.domain.enums import ProcessingStatus
 from news_analyzer.domain.models import (
     ClassificationResult,
     DedupMetadataUpdate,
@@ -65,12 +66,22 @@ class NewsRepository:
         )
         return created
 
-    def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
+    def set_enrichment(
+        self,
+        external_id: str,
+        entities: list[Entity],
+        classification: ClassificationResult,
+        *,
+        enrichment_status: ProcessingStatus = ProcessingStatus.SUCCESS,
+        enrichment_error_code: str | None = None,
+    ) -> None:
         body = {
             "doc": {
                 "entities": [asdict(value) for value in entities],
                 "class_label": classification.class_label.value,
                 "class_confidence": classification.class_confidence,
+                "enrichment_status": enrichment_status.value,
+                "enrichment_error_code": enrichment_error_code,
             }
         }
         for attempt in range(1, self._ENRICHMENT_RETRY_ATTEMPTS + 1):
@@ -198,6 +209,10 @@ class NewsRepository:
     def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
         now_utc = datetime.now(timezone.utc)
         window_start = now_utc - timedelta(hours=hours)
+        retry_candidates: list[dict[str, object]] = [
+            {"bool": {"must_not": [{"exists": {"field": "entities"}}]}},
+            {"term": {"enrichment_status": ProcessingStatus.FAILED.value}},
+        ]
         response = self._client.search(
             index=self._index_name,
             body={
@@ -205,7 +220,8 @@ class NewsRepository:
                 "query": {
                     "bool": {
                         "must": [{"range": {"published_at": {"gte": window_start.isoformat(), "lte": now_utc.isoformat()}}}],
-                        "must_not": [{"exists": {"field": "entities"}}],
+                        "should": retry_candidates,
+                        "minimum_should_match": 1,
                     }
                 },
                 "sort": [{"published_at": {"order": "desc"}}],

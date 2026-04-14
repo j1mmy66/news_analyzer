@@ -240,6 +240,8 @@ def test_set_enrichment_writes_entities_and_classification() -> None:
     assert body["entities"][0]["normalized"] == "москва"
     assert body["class_label"] == "economy"
     assert body["class_confidence"] == 0.7
+    assert body["enrichment_status"] == ProcessingStatus.SUCCESS.value
+    assert body["enrichment_error_code"] is None
 
 
 def test_get_recent_news_without_summary_builds_query_and_maps_hits(monkeypatch) -> None:
@@ -324,7 +326,10 @@ def test_get_recent_news_without_enrichment_builds_query_and_maps_hits(monkeypat
     assert items[0]["external_id"] == "id-7"
     call = client.search_calls[0]
     assert call["body"]["size"] == 3
-    assert call["body"]["query"]["bool"]["must_not"] == [{"exists": {"field": "entities"}}]
+    query = call["body"]["query"]["bool"]
+    assert query["minimum_should_match"] == 1
+    assert query["should"][0] == {"bool": {"must_not": [{"exists": {"field": "entities"}}]}}
+    assert query["should"][1] == {"term": {"enrichment_status": ProcessingStatus.FAILED.value}}
 
 
 def test_get_news_for_last_hours_and_last_hour_queries(monkeypatch) -> None:

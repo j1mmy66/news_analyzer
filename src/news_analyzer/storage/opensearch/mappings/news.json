@@ -26,6 +26,8 @@
       },
       "class_label": {"type": "keyword"},
       "class_confidence": {"type": "float"},
+      "enrichment_status": {"type": "keyword"},
+      "enrichment_error_code": {"type": "keyword"},
       "summary": {"type": "text"},
       "summary_status": {"type": "keyword"},
       "summary_error_code": {"type": "keyword"},
