@@ -79,7 +79,23 @@ def run_ner_job(limit: int = 300) -> int:
     processed = 0
     text_truncated_count = 0
     for item in repository.get_recent_news_without_enrichment(limit=limit, hours=24):
-        external_id = str(item["external_id"])
+        raw_external_id = item.get("external_id")
+        if raw_external_id is None:
+            logger.error(
+                "missing_external_id: skipping item source=%s published_at=%s",
+                item.get("source"),
+                item.get("published_at"),
+            )
+            continue
+        external_id = str(raw_external_id).strip()
+        if not external_id:
+            logger.error(
+                "missing_external_id: skipping item source=%s published_at=%s raw_external_id=%r",
+                item.get("source"),
+                item.get("published_at"),
+                raw_external_id,
+            )
+            continue
         text = str(item.get("cleaned_text") or "")
         prepared_text = _trim_after_template_phrase(text)
         truncated = truncate_text(prepared_text, settings.ner_text_max_chars)

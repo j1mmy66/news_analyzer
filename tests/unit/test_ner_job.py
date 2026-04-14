@@ -93,6 +93,29 @@ def test_run_ner_job_success_path(tmp_path: Path, monkeypatch) -> None:
     assert repo.calls[0]["enrichment_error_code"] is None
 
 
+def test_run_ner_job_skips_item_without_external_id_and_continues(tmp_path: Path, monkeypatch, caplog) -> None:
+    repo = _RepoStub(
+        [
+            {"cleaned_text": "битый элемент", "source": "rbc"},
+            {"external_id": "n1", "cleaned_text": "Иван Иванов"},
+        ]
+    )
+    settings = _settings(tmp_path)
+
+    class _Model:
+        def extract(self, _text: str) -> list[Entity]:
+            return [Entity(text="Иван Иванов", label="PER", start=0, end=11, confidence=0.8, normalized="иван иванов")]
+
+    _patch_common(monkeypatch, repo, settings, _Model())
+    caplog.set_level("ERROR")
+    processed = ner_job.run_ner_job(limit=10)
+
+    assert processed == 1
+    assert len(repo.calls) == 1
+    assert repo.calls[0]["external_id"] == "n1"
+    assert "missing_external_id" in caplog.text
+
+
 def test_run_ner_job_retries_then_succeeds(tmp_path: Path, monkeypatch) -> None:
     repo = _RepoStub([{"external_id": "n2", "cleaned_text": "Рынок растет"}])
     settings = _settings(tmp_path)
