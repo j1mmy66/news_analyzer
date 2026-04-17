@@ -18,7 +18,7 @@
 - `sources/rbc` и `sources/lenta` - сбор и парсинг новостей из источников
 - `pipeline/ingest` - загрузка в хранилище
 - `pipeline/enrich` - NER + классификация
-- `pipeline/summarize` - per-item summary, hourly digest, retry пропущенных summary
+- `pipeline/summarize` - per-item summary и hourly digest
 - `pipeline/dashboard` - агрегация метрик сущностей для Superset
 - `storage/opensearch` - индексы и репозитории для новостей и digest
 - `apps/streamlit` - пользовательский интерфейс ленты и digest
@@ -36,7 +36,7 @@
 - Поддерживаются источники `rbc` и `lenta`.
 - Для Lenta используется схема: RSS-лента (`https://lenta.ru/rss/news`) как индекс свежих новостей + попытка извлечения `full_text` по `link`.
 - Если для Lenta не удалось получить `full_text` (включая anti-bot challenge/пустой HTML), запись пропускается на этапе ingest и не индексируется.
-- В Airflow должны быть включены ingest DAG: `rbc_news_ingest` и `lenta_news_ingest`.
+- В Airflow должен быть включён единый DAG: `news_unified_pipeline` (`rbc + lenta -> dedup -> nlp -> summaries + dashboard`).
 
 
 ## Технологии

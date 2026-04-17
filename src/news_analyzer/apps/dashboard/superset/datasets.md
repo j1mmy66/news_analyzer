@@ -20,4 +20,4 @@ Excluded entities for dashboard aggregation:
 - `MAX!`
 - `MAХ!`
 
-This table is refreshed by Airflow DAG `dashboard_ner_metrics` every 15 minutes.
+This table is refreshed by Airflow DAG `news_unified_pipeline` every 30 minutes.
