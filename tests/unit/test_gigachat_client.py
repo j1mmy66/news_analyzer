@@ -7,6 +7,7 @@ import pytest
 from news_analyzer.summarization.gigachat.client import (
     GigaChatAuthError,
     GigaChatClient,
+    GigaChatContentRestrictedError,
     GigaChatDependencyError,
     GigaChatError,
     GigaChatRateLimitError,
@@ -76,6 +77,43 @@ def test_gigachat_client_raises_on_invalid_response(monkeypatch) -> None:
     client = GigaChatClient(auth_key="secret")
 
     with pytest.raises(GigaChatResponseFormatError):
+        client.summarize("prompt")
+
+
+def test_gigachat_client_raises_on_blacklist_finish_reason(monkeypatch) -> None:
+    monkeypatch.setattr(
+        GigaChatClient,
+        "_chat_completion",
+        lambda self, prompt: {
+            "choices": [{"finish_reason": "blacklist", "message": {"content": "stub"}}]
+        },
+    )
+    client = GigaChatClient(auth_key="secret")
+
+    with pytest.raises(GigaChatContentRestrictedError):
+        client.summarize("prompt")
+
+
+def test_gigachat_client_raises_on_restricted_marker_text(monkeypatch) -> None:
+    monkeypatch.setattr(
+        GigaChatClient,
+        "_chat_completion",
+        lambda self, prompt: {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Как и любая языковая модель... "
+                            "Разговоры на некоторые темы временно ограничены."
+                        )
+                    }
+                }
+            ]
+        },
+    )
+    client = GigaChatClient(auth_key="secret")
+
+    with pytest.raises(GigaChatContentRestrictedError):
         client.summarize("prompt")
 
 
@@ -160,6 +198,7 @@ def test_is_retryable_matrix() -> None:
     assert client._is_retryable(GigaChatRateLimitError("429")) is True
     assert client._is_retryable(GigaChatServerError("503")) is True
     assert client._is_retryable(GigaChatTransportError("network")) is True
+    assert client._is_retryable(GigaChatContentRestrictedError("restricted")) is False
     assert client._is_retryable(GigaChatAuthError("401")) is False
     assert client._is_retryable(GigaChatValidationError("422")) is False
 

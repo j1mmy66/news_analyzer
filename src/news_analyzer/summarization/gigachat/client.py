@@ -36,6 +36,10 @@ class GigaChatTransportError(GigaChatError):
     pass
 
 
+class GigaChatContentRestrictedError(GigaChatError):
+    pass
+
+
 class GigaChatResponseFormatError(GigaChatError):
     pass
 
@@ -51,6 +55,9 @@ class GigaChatClient:
     verify_ssl: bool = True
 
     _SYSTEM_PROMPT = "Ты редактор новостей. Отвечай кратко, по фактам, без домыслов."
+    _CONTENT_RESTRICTED_MARKERS = (
+        "разговоры на некоторые темы временно ограничены",
+    )
 
     def summarize(self, prompt: str) -> str:
         if not prompt.strip():
@@ -79,6 +86,7 @@ class GigaChatClient:
         except Exception as exc:  # noqa: BLE001
             raise self._map_exception(exc) from exc
 
+        self._raise_if_content_restricted(payload)
         summary = self._extract_content(payload)
         if not summary:
             raise GigaChatResponseFormatError("Invalid GigaChat response format")
@@ -125,18 +133,29 @@ class GigaChatClient:
                 )
 
     def _extract_content(self, payload: Any) -> str | None:
+        first_choice = self._extract_first_choice(payload)
+        if first_choice is None:
+            return None
+        content = self._extract_choice_content(first_choice)
+        if content is None:
+            return None
+        normalized = content.strip()
+        return normalized or None
+
+    def _extract_first_choice(self, payload: Any) -> Any | None:
         if isinstance(payload, dict):
             choices = payload.get("choices")
         else:
             choices = getattr(payload, "choices", None)
         if not choices:
             return None
+        return choices[0]
 
-        first_choice = choices[0]
-        if isinstance(first_choice, dict):
-            message = first_choice.get("message", {})
+    def _extract_choice_content(self, choice: Any) -> str | None:
+        if isinstance(choice, dict):
+            message = choice.get("message", {})
         else:
-            message = getattr(first_choice, "message", None)
+            message = getattr(choice, "message", None)
 
         if isinstance(message, dict):
             content = message.get("content")
@@ -145,8 +164,35 @@ class GigaChatClient:
 
         if not isinstance(content, str):
             return None
-        normalized = content.strip()
+        return content
+
+    def _extract_finish_reason(self, choice: Any) -> str | None:
+        if isinstance(choice, dict):
+            finish_reason = choice.get("finish_reason")
+        else:
+            finish_reason = getattr(choice, "finish_reason", None)
+        if not isinstance(finish_reason, str):
+            return None
+        normalized = finish_reason.strip().lower()
         return normalized or None
+
+    def _raise_if_content_restricted(self, payload: Any) -> None:
+        first_choice = self._extract_first_choice(payload)
+        if first_choice is None:
+            return
+
+        finish_reason = self._extract_finish_reason(first_choice)
+        if finish_reason == "blacklist":
+            raise GigaChatContentRestrictedError(
+                "GigaChat content restriction (finish_reason=blacklist)"
+            )
+
+        content = self._extract_choice_content(first_choice)
+        if content is None:
+            return
+        lowered = content.lower()
+        if any(marker in lowered for marker in self._CONTENT_RESTRICTED_MARKERS):
+            raise GigaChatContentRestrictedError("GigaChat content restriction marker detected")
 
     def _map_exception(self, exc: Exception) -> GigaChatError:
         message = str(exc).lower()
