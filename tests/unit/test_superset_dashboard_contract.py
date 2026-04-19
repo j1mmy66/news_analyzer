@@ -26,3 +26,11 @@ def test_superset_docs_include_required_dashboard_fields() -> None:
     assert "Top 10 Entities (3h)" in charts_doc
     assert "Top 10 Entities (24h)" in charts_doc
     assert "Top 100 Entities Table" in charts_doc
+
+
+def test_top_100_entities_table_sorted_by_count_3h_desc() -> None:
+    chart_yaml = Path(
+        "src/news_analyzer/apps/dashboard/superset/assets/charts/top_30_entities_table.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert '["count_3h", false]' in chart_yaml

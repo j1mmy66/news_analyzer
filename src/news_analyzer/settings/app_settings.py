@@ -25,6 +25,7 @@ class AppSettings:
     opensearch_password: str | None = None
     opensearch_use_ssl: bool = False
     opensearch_verify_certs: bool = False
+    streamlit_feed_lookback_hours: int = 48
     dashboard_pg_host: str = "postgres"
     dashboard_pg_port: int = 5432
     dashboard_pg_database: str = "airflow"
@@ -69,6 +70,7 @@ class AppSettings:
             opensearch_password=getenv("OPENSEARCH_PASSWORD"),
             opensearch_use_ssl=getenv("OPENSEARCH_USE_SSL", "false").lower() == "true",
             opensearch_verify_certs=getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true",
+            streamlit_feed_lookback_hours=max(1, int(getenv("STREAMLIT_FEED_LOOKBACK_HOURS", "48"))),
             dashboard_pg_host=getenv("DASHBOARD_PG_HOST", "postgres"),
             dashboard_pg_port=int(getenv("DASHBOARD_PG_PORT", "5432")),
             dashboard_pg_database=getenv("DASHBOARD_PG_DATABASE", "airflow"),

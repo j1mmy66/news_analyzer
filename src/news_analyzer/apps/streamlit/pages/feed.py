@@ -28,7 +28,12 @@ def _query_service() -> StreamlitQueryService:
             verify_certs=settings.opensearch_verify_certs,
         )
     )
-    return StreamlitQueryService(client, settings.opensearch_news_index, settings.opensearch_digests_index)
+    return StreamlitQueryService(
+        client,
+        settings.opensearch_news_index,
+        settings.opensearch_digests_index,
+        feed_lookback_hours=settings.streamlit_feed_lookback_hours,
+    )
 
 
 def _format_dt(value: datetime | None) -> str:

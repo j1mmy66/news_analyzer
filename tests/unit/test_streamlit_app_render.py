@@ -224,15 +224,23 @@ def test_app_query_service_builds_client_from_settings(monkeypatch) -> None:
         opensearch_password = "p"
         opensearch_use_ssl = True
         opensearch_verify_certs = True
+        streamlit_feed_lookback_hours = 48
 
     def _fake_build_client(config):
         return "client-object"
 
     class _FakeQueryService:
-        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+        def __init__(
+            self,
+            client: object,
+            news_index: str,
+            digest_index: str,
+            feed_lookback_hours: int = 48,
+        ) -> None:
             self.client = client
             self.news_index = news_index
             self.digest_index = digest_index
+            self.feed_lookback_hours = feed_lookback_hours
 
     monkeypatch.setattr(app.AppSettings, "from_env", classmethod(lambda cls: _Settings()))
     monkeypatch.setattr(app, "build_client", _fake_build_client)
@@ -244,6 +252,7 @@ def test_app_query_service_builds_client_from_settings(monkeypatch) -> None:
     assert service.client == "client-object"
     assert service.news_index == "news_items"
     assert service.digest_index == "hourly_digests"
+    assert service.feed_lookback_hours == 48
 
 
 def test_app_format_dt_handles_none() -> None:
@@ -308,6 +317,7 @@ def test_app_main_guard_executes_render_app(monkeypatch) -> None:
         opensearch_password = None
         opensearch_use_ssl = False
         opensearch_verify_certs = False
+        streamlit_feed_lookback_hours = 48
 
     class _AppSettings:
         @classmethod
@@ -328,7 +338,13 @@ def test_app_main_guard_executes_render_app(monkeypatch) -> None:
     fake_query_module = types.ModuleType("news_analyzer.apps.streamlit.query_service")
 
     class _Service:
-        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+        def __init__(
+            self,
+            client: object,
+            news_index: str,
+            digest_index: str,
+            feed_lookback_hours: int = 48,
+        ) -> None:
             return None
 
         def latest_hourly_digest_for_last_hour(self):

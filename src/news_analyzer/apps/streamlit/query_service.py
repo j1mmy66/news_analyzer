@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
 from opensearchpy import OpenSearch
 
 from news_analyzer.apps.streamlit.view_models import HourlyDigestView, NewsCard, NewsCursor, NewsPage
 
+logger = logging.getLogger(__name__)
+
 
 class StreamlitQueryService:
-    def __init__(self, client: OpenSearch, news_index: str, digest_index: str) -> None:
+    def __init__(
+        self,
+        client: OpenSearch,
+        news_index: str,
+        digest_index: str,
+        feed_lookback_hours: int = 48,
+    ) -> None:
         self._client = client
         self._news_index = news_index
         self._digest_index = digest_index
+        self._feed_lookback_hours = max(1, int(feed_lookback_hours))
 
     def latest_news_page(
         self,
@@ -20,8 +30,21 @@ class StreamlitQueryService:
         cursor: NewsCursor | None = None,
         source: str | None = None,
         class_label: str | None = None,
+        now: datetime | None = None,
     ) -> NewsPage:
-        must: list[dict[str, object]] = [self._canonical_filter_clause()]
+        now_utc = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+        window_start = now_utc - timedelta(hours=self._feed_lookback_hours)
+        must: list[dict[str, object]] = [
+            self._canonical_filter_clause(),
+            {
+                "range": {
+                    "published_at": {
+                        "gte": window_start.isoformat(),
+                        "lte": now_utc.isoformat(),
+                    }
+                }
+            },
+        ]
         if source:
             must.append({"term": {"source_type": source}})
         if class_label:
@@ -47,6 +70,11 @@ class StreamlitQueryService:
             last_sort = page_hits[-1].get("sort")
             if isinstance(last_sort, (list, tuple)):
                 next_cursor = NewsCursor.from_sort(last_sort)
+            if next_cursor is None:
+                logger.warning(
+                    "Feed pagination cursor is missing or invalid; disabling further pagination to avoid looping."
+                )
+                has_more = False
 
         return NewsPage(items=items, next_cursor=next_cursor, has_more=has_more)
 

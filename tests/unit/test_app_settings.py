@@ -67,6 +67,15 @@ def test_app_settings_reads_text_limit_env(monkeypatch) -> None:
     assert settings.summary_hourly_total_max_chars == 11000
 
 
+def test_app_settings_reads_streamlit_feed_lookback_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+    monkeypatch.setenv("STREAMLIT_FEED_LOOKBACK_HOURS", "72")
+
+    settings = AppSettings.from_env()
+
+    assert settings.streamlit_feed_lookback_hours == 72
+
+
 def test_app_settings_dedup_defaults(monkeypatch) -> None:
     monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
     monkeypatch.delenv("DEDUP_MODEL_NAME", raising=False)
@@ -99,6 +108,18 @@ def test_app_settings_text_limit_defaults(monkeypatch) -> None:
     assert settings.summary_item_text_max_chars == 5000
     assert settings.summary_hourly_item_max_chars == 1500
     assert settings.summary_hourly_total_max_chars == 10000
+
+
+def test_app_settings_streamlit_feed_lookback_defaults_and_minimum(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+    monkeypatch.delenv("STREAMLIT_FEED_LOOKBACK_HOURS", raising=False)
+
+    defaults = AppSettings.from_env()
+    assert defaults.streamlit_feed_lookback_hours == 48
+
+    monkeypatch.setenv("STREAMLIT_FEED_LOOKBACK_HOURS", "0")
+    normalized = AppSettings.from_env()
+    assert normalized.streamlit_feed_lookback_hours == 1
 
 
 def test_default_opensearch_hosts_prefers_explicit_env(monkeypatch) -> None:

@@ -148,6 +148,7 @@ def test_feed_query_service_builds_client_from_settings(monkeypatch) -> None:
         opensearch_password = "p"
         opensearch_use_ssl = True
         opensearch_verify_certs = True
+        streamlit_feed_lookback_hours = 48
 
     captured: dict[str, object] = {}
 
@@ -156,10 +157,17 @@ def test_feed_query_service_builds_client_from_settings(monkeypatch) -> None:
         return "client-object"
 
     class _FakeQueryService:
-        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+        def __init__(
+            self,
+            client: object,
+            news_index: str,
+            digest_index: str,
+            feed_lookback_hours: int = 48,
+        ) -> None:
             self.client = client
             self.news_index = news_index
             self.digest_index = digest_index
+            self.feed_lookback_hours = feed_lookback_hours
 
     monkeypatch.setattr(feed.AppSettings, "from_env", classmethod(lambda cls: _Settings()))
     monkeypatch.setattr(feed, "build_client", _fake_build_client)
@@ -171,6 +179,7 @@ def test_feed_query_service_builds_client_from_settings(monkeypatch) -> None:
     assert service.client == "client-object"
     assert service.news_index == "news_items"
     assert service.digest_index == "hourly_digests"
+    assert service.feed_lookback_hours == 48
 
 
 def test_render_feed_includes_lenta_source_in_selectbox(monkeypatch) -> None:
