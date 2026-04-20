@@ -397,3 +397,75 @@ def test_render_app_handles_digest_backend_error(monkeypatch) -> None:
     app.render_app()
 
     assert any("OpenSearch недоступен" in line for line in fake_st.writes)
+
+
+def test_render_news_card_trims_rbc_text_from_max_marker(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-1",
+        title="Title 1",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="rbc",
+        raw_text=(
+            "Полный текст до маркера. "
+            "Оставайтесь на связи с РБК в «Максе» . "
+            "Хвост, который нужно убрать."
+        ),
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Полный текст до маркера." in line for line in fake_st.writes)
+    assert not any("Хвост, который нужно убрать." in line for line in fake_st.writes)
+
+
+def test_render_news_card_does_not_trim_non_rbc_text(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-2",
+        title="Title 2",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="lenta",
+        raw_text=(
+            "Текст сохраняется. "
+            "Оставайтесь на связи с РБК в «Максе» . "
+            "Хвост должен остаться."
+        ),
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Хвост должен остаться." in line for line in fake_st.writes)
+
+
+def test_render_news_card_keeps_rbc_text_when_marker_absent(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-3",
+        title="Title 3",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="rbc",
+        raw_text="Текст без маркера должен остаться как есть.",
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Текст без маркера должен остаться как есть." in line for line in fake_st.writes)
