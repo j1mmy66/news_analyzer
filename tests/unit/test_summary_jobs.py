@@ -82,6 +82,86 @@ def test_item_summary_job_uses_legacy_key_fallback(monkeypatch) -> None:
     assert captured["auth_key"] == "legacy-key"
 
 
+def test_item_summary_job_continues_when_single_set_summary_write_fails(monkeypatch) -> None:
+    captured: dict[str, object] = {"saved_ids": []}
+
+    class _FakeRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
+            return [
+                {"external_id": "id-1", "cleaned_text": "text-1"},
+                {"external_id": "id-2", "cleaned_text": "text-2"},
+            ]
+
+        def set_summary(self, external_id: str, summary: SummaryResult) -> None:
+            if external_id == "id-1":
+                raise RuntimeError("write failed")
+            saved_ids = captured["saved_ids"]
+            assert isinstance(saved_ids, list)
+            saved_ids.append(external_id)
+
+    class _FakeSummaryService:
+        def __init__(self, client: object, **kwargs) -> None:
+            return None
+
+        def summarize_item(self, text: str) -> SummaryResult:
+            return SummaryResult(
+                summary=f"summary:{text}",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setattr(item_summary_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsWithCredential()))
+    monkeypatch.setattr(item_summary_job, "build_client", lambda config: object())
+    monkeypatch.setattr(item_summary_job, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(item_summary_job, "SummaryService", _FakeSummaryService)
+    monkeypatch.setattr(item_summary_job, "GigaChatClient", lambda **kwargs: object())
+
+    assert item_summary_job.run_item_summary_job(limit=10) == 1
+    assert captured["saved_ids"] == ["id-2"]
+
+
+def test_item_summary_job_logs_warning_when_multiple_set_summary_writes_fail(monkeypatch, caplog) -> None:
+    class _FakeRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
+            return [
+                {"external_id": "id-1", "cleaned_text": "text-1"},
+                {"external_id": "id-2", "cleaned_text": "text-2"},
+            ]
+
+        def set_summary(self, external_id: str, summary: SummaryResult) -> None:
+            raise RuntimeError(f"write failed for {external_id}")
+
+    class _FakeSummaryService:
+        def __init__(self, client: object, **kwargs) -> None:
+            return None
+
+        def summarize_item(self, text: str) -> SummaryResult:
+            return SummaryResult(
+                summary=f"summary:{text}",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setattr(item_summary_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsWithCredential()))
+    monkeypatch.setattr(item_summary_job, "build_client", lambda config: object())
+    monkeypatch.setattr(item_summary_job, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(item_summary_job, "SummaryService", _FakeSummaryService)
+    monkeypatch.setattr(item_summary_job, "GigaChatClient", lambda **kwargs: object())
+
+    with caplog.at_level("WARNING"):
+        assert item_summary_job.run_item_summary_job(limit=10) == 0
+
+    assert "attempted=2 saved=0 failed=2" in caplog.text
+
+
 def test_hourly_digest_job_does_not_create_digest_when_summary_failed(monkeypatch) -> None:
     calls = {"digest_upserted": False, "digest_linked": False}
 

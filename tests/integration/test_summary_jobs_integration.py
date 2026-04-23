@@ -186,6 +186,58 @@ def test_item_summary_job_mixed_results_continue_processing(monkeypatch, opensea
         server.server_close()
 
 
+def test_item_summary_job_set_summary_failure_does_not_stop_batch(monkeypatch, opensearch_client, indexed_os_names) -> None:
+    news_index = indexed_os_names["news_index"]
+    digests_index = indexed_os_names["digests_index"]
+    repository = NewsRepository(opensearch_client, news_index)
+    now = datetime.now(timezone.utc)
+    assert repository.upsert_news(
+        [
+            _sample_item("n-1", now - timedelta(minutes=20), cleaned_text="Текст 1"),
+            _sample_item("n-2", now - timedelta(minutes=10), cleaned_text="Текст 2"),
+        ]
+    ) == 2
+    opensearch_client.indices.refresh(index=news_index)
+
+    class _FailingSummaryWriteRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            self._delegate = NewsRepository(client, index_name)
+
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
+            rows = self._delegate.get_recent_canonical_news_without_summary(limit=limit)
+            if len(rows) < 2:
+                return rows + [{"external_id": "missing-doc", "cleaned_text": "Отсутствующий документ"}]
+            return [rows[0], {"external_id": "missing-doc", "cleaned_text": "Отсутствующий документ"}, rows[1]]
+
+        def set_summary(self, external_id: str, summary: SummaryResult) -> None:
+            self._delegate.set_summary(external_id, summary)
+
+    state = _FakeEndpointState()
+    state.queue_response(200, {"choices": [{"message": {"content": "ok-1"}}]})
+    state.queue_response(200, {"choices": [{"message": {"content": "ok-missing"}}]})
+    state.queue_response(200, {"choices": [{"message": {"content": "ok-2"}}]})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _handler_factory(state))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        _install_fake_gigachat_module(monkeypatch, f"http://127.0.0.1:{server.server_port}")
+        settings = _summary_settings(news_index, digests_index)
+        monkeypatch.setattr(item_summary_job.AppSettings, "from_env", classmethod(lambda cls: settings))
+        monkeypatch.setattr(item_summary_job, "NewsRepository", _FailingSummaryWriteRepository)
+
+        processed = item_summary_job.run_item_summary_job(limit=10)
+        assert processed == 2
+        opensearch_client.indices.refresh(index=news_index)
+
+        status_n1 = opensearch_client.get(index=news_index, id="n-1")["_source"]["summary_status"]
+        status_n2 = opensearch_client.get(index=news_index, id="n-2")["_source"]["summary_status"]
+        assert {status_n1, status_n2} == {ProcessingStatus.SUCCESS.value}
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
 def test_hourly_digest_job_success(monkeypatch, opensearch_client, indexed_os_names) -> None:
     news_index = indexed_os_names["news_index"]
     digests_index = indexed_os_names["digests_index"]
