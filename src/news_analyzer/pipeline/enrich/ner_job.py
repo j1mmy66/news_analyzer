@@ -3,15 +3,25 @@ from __future__ import annotations
 import logging
 import time
 
-from news_analyzer.domain.enums import ClassLabel
+from news_analyzer.domain.enums import ClassLabel, ProcessingStatus
 from news_analyzer.domain.models import ClassificationResult, Entity
 from news_analyzer.nlp.classification.local_model import HFNewsClassificationModel
 from news_analyzer.nlp.ner.local_model import NatashaSlovnetNERModel
+from news_analyzer.pipeline.orchestration.text_preprocessor import truncate_text
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_client
 from news_analyzer.storage.opensearch.repositories import NewsRepository
 
 logger = logging.getLogger(__name__)
+_TEMPLATE_PHRASE = "Самые важные новости"
+
+
+def _trim_after_template_phrase(text: str) -> str:
+    lower_text = text.lower()
+    marker_index = lower_text.find(_TEMPLATE_PHRASE.lower())
+    if marker_index == -1:
+        return text
+    return text[:marker_index].strip()
 
 
 def _extract_with_retry(
@@ -67,25 +77,51 @@ def run_ner_job(limit: int = 300) -> int:
     )
 
     processed = 0
+    text_truncated_count = 0
     for item in repository.get_recent_news_without_enrichment(limit=limit, hours=24):
-        external_id = str(item["external_id"])
+        raw_external_id = item.get("external_id")
+        if raw_external_id is None:
+            logger.error(
+                "missing_external_id: skipping item source=%s published_at=%s",
+                item.get("source"),
+                item.get("published_at"),
+            )
+            continue
+        external_id = str(raw_external_id).strip()
+        if not external_id:
+            logger.error(
+                "missing_external_id: skipping item source=%s published_at=%s raw_external_id=%r",
+                item.get("source"),
+                item.get("published_at"),
+                raw_external_id,
+            )
+            continue
         text = str(item.get("cleaned_text") or "")
+        prepared_text = _trim_after_template_phrase(text)
+        truncated = truncate_text(prepared_text, settings.ner_text_max_chars)
+        prepared_text = truncated.text
+        if truncated.was_truncated:
+            text_truncated_count += 1
+        ner_error: Exception | None = None
+        classification_error: Exception | None = None
 
         try:
             entities = _extract_with_retry(
                 ner_model=ner_model,
-                text=text,
+                text=prepared_text,
                 max_retries=settings.ner_max_retries,
                 backoff_seconds=settings.ner_retry_backoff_seconds,
                 backoff_cap_seconds=settings.ner_retry_backoff_cap_seconds,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            ner_error = exc
             logger.exception("NER failed for %s; storing empty entities", external_id)
             entities = []
 
         try:
-            classification = classifier.classify(text)
-        except Exception:  # noqa: BLE001
+            classification = classifier.classify(prepared_text)
+        except Exception as exc:  # noqa: BLE001
+            classification_error = exc
             logger.exception("Classification failed for %s; storing OTHER label", external_id)
             classification = ClassificationResult(
                 class_label=ClassLabel.OTHER,
@@ -93,11 +129,35 @@ def run_ner_job(limit: int = 300) -> int:
                 model_version="hf-any-news-v1",
             )
 
+        if ner_error and classification_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code: str | None = "NER_AND_CLASSIFICATION_FAILED"
+        elif ner_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code = f"NER_{ner_error.__class__.__name__}"
+        elif classification_error:
+            enrichment_status = ProcessingStatus.FAILED
+            enrichment_error_code = f"CLASSIFICATION_{classification_error.__class__.__name__}"
+        else:
+            enrichment_status = ProcessingStatus.SUCCESS
+            enrichment_error_code = None
+
         try:
-            repository.set_enrichment(external_id, entities, classification)
+            repository.set_enrichment(
+                external_id,
+                entities,
+                classification,
+                enrichment_status=enrichment_status,
+                enrichment_error_code=enrichment_error_code,
+            )
             processed += 1
         except Exception:  # noqa: BLE001
             logger.exception("Persistence failed for %s", external_id)
 
-    logger.info("Enrichment completed for %s items", processed)
+    logger.info(
+        "Enrichment completed: processed=%s text_truncated_count=%s limit_chars=%s",
+        processed,
+        text_truncated_count,
+        settings.ner_text_max_chars,
+    )
     return processed

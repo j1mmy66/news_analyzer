@@ -11,3 +11,7 @@ def test_news_mapping_contains_required_fields() -> None:
     assert "class_label" in properties
     assert "summary" in properties
     assert "entities" in properties
+    assert "dedup_is_canonical" in properties
+    assert "dedup_canonical_external_id" in properties
+    assert "dedup_similarity_to_canonical" in properties
+    assert "dedup_updated_at" in properties

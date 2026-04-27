@@ -6,6 +6,18 @@ from news_analyzer.apps.streamlit.query_service import StreamlitQueryService
 from news_analyzer.apps.streamlit.view_models import NewsCursor
 
 
+def _canonical_clause() -> dict[str, object]:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"dedup_is_canonical": True}},
+                {"bool": {"must_not": [{"exists": {"field": "dedup_is_canonical"}}]}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
 class _FakeClient:
     def __init__(self, responses: list[dict[str, object]]) -> None:
         self._responses = responses
@@ -54,6 +66,7 @@ def test_latest_news_page_uses_stable_sort_and_cursor() -> None:
     assert call_body["size"] == 2
     assert call_body["sort"] == [{"published_at": {"order": "desc"}}, {"external_id": {"order": "asc"}}]
     assert call_body["search_after"] == ["2026-03-16T11:00:00+00:00", "id-3"]
+    assert call_body["query"] == {"bool": {"must": [_canonical_clause()]}}
 
 
 def test_latest_news_page_applies_source_and_class_filters() -> None:
@@ -66,8 +79,26 @@ def test_latest_news_page_applies_source_and_class_filters() -> None:
     assert query == {
         "bool": {
             "must": [
+                _canonical_clause(),
                 {"term": {"source_type": "rbc"}},
                 {"term": {"class_label": "economy"}},
+            ]
+        }
+    }
+
+
+def test_latest_news_page_applies_lenta_source_filter() -> None:
+    client = _FakeClient([{"hits": {"hits": []}}])
+    service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")
+
+    service.latest_news_page(size=20, source="lenta")
+
+    query = client.calls[0]["body"]["query"]
+    assert query == {
+        "bool": {
+            "must": [
+                _canonical_clause(),
+                {"term": {"source_type": "lenta"}},
             ]
         }
     }
@@ -137,3 +168,75 @@ def test_latest_hourly_digest_for_last_hour_validates_window() -> None:
     assert recent is not None
     assert recent.news_count == 2
     assert stale is None
+
+
+def test_latest_hourly_digest_returns_none_when_no_hits() -> None:
+    client = _FakeClient([{"hits": {"hits": []}}])
+    service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")
+
+    assert service.latest_hourly_digest_for_last_hour() is None
+
+
+def test_latest_hourly_digest_returns_none_for_invalid_digest_dates() -> None:
+    client = _FakeClient(
+        [
+            {
+                "hits": {
+                    "hits": [
+                        {
+                            "_id": "digest-x",
+                            "_source": {
+                                "window_start": "invalid",
+                                "window_end": "2026-03-17T07:59:00+00:00",
+                            },
+                        }
+                    ]
+                }
+            }
+        ]
+    )
+    service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")
+
+    assert service.latest_hourly_digest_for_last_hour() is None
+
+
+def test_map_news_hit_handles_non_dict_metadata_and_string_authors() -> None:
+    client = _FakeClient([])
+    service = StreamlitQueryService(client=client, news_index="news_items", digest_index="hourly_digests")
+
+    card_no_meta = service._map_news_hit(
+        {
+            "_id": "id-1",
+            "_source": {
+                "external_id": "id-1",
+                "published_at": "2026-03-16T10:00:00+00:00",
+                "source_metadata": "bad-shape",
+            },
+        }
+    )
+    card_with_authors_str = service._map_news_hit(
+        {
+            "_id": "id-2",
+            "_source": {
+                "external_id": "id-2",
+                "published_at": "2026-03-16T10:00:00+00:00",
+                "source_metadata": {
+                    "authors": "single-author",
+                    "permalink": "https://example.com/id-2",
+                },
+            },
+        }
+    )
+
+    assert card_no_meta.authors == ""
+    assert card_no_meta.title == "id-1"
+    assert card_with_authors_str.authors == "single-author"
+    assert card_with_authors_str.url == "https://example.com/id-2"
+
+
+def test_parse_datetime_handles_non_str_and_invalid_iso() -> None:
+    assert StreamlitQueryService._parse_datetime(123) is None
+    assert StreamlitQueryService._parse_datetime("not-a-date") is None
+    parsed = StreamlitQueryService._parse_datetime("2026-03-17T08:00:00")
+    assert parsed is not None
+    assert parsed.tzinfo == timezone.utc

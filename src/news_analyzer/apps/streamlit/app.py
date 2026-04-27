@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -18,6 +19,8 @@ STATE_CURSOR_KEY = "feed_cursor"
 STATE_HAS_MORE_KEY = "feed_has_more"
 STATE_SOURCE_KEY = "feed_source_filter"
 STATE_CLASS_KEY = "feed_class_filter"
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -64,12 +67,18 @@ def _load_more_news(service: StreamlitQueryService, source: str, class_label: st
         return
 
     cursor = st.session_state.get(STATE_CURSOR_KEY)
-    page = service.latest_news_page(
-        size=DEFAULT_BATCH_SIZE,
-        cursor=cursor,
-        source=source or None,
-        class_label=class_label or None,
-    )
+    try:
+        page = service.latest_news_page(
+            size=DEFAULT_BATCH_SIZE,
+            cursor=cursor,
+            source=source or None,
+            class_label=class_label or None,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch news page from OpenSearch")
+        st.error("Не удалось загрузить новости: OpenSearch недоступен.")
+        st.session_state[STATE_HAS_MORE_KEY] = False
+        return
 
     st.session_state[STATE_ITEMS_KEY] = st.session_state.get(STATE_ITEMS_KEY, []) + page.items
     st.session_state[STATE_CURSOR_KEY] = page.next_cursor
@@ -78,7 +87,12 @@ def _load_more_news(service: StreamlitQueryService, source: str, class_label: st
 
 def _render_hourly_summary(service: StreamlitQueryService) -> None:
     st.subheader("Саммари за последний час")
-    digest = service.latest_hourly_digest_for_last_hour()
+    try:
+        digest = service.latest_hourly_digest_for_last_hour()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch hourly digest from OpenSearch")
+        st.error("Не удалось получить дайджест: OpenSearch недоступен.")
+        return
     if digest is None:
         st.info("Дайджест недоступен за последний час.")
         return
@@ -116,7 +130,7 @@ def render_app() -> None:
     st.divider()
 
     st.subheader("Лента новостей")
-    source = st.selectbox("Источник", ["", "rbc"], index=0)
+    source = st.selectbox("Источник", ["", "rbc", "lenta"], index=0)
     class_label = st.text_input("Class label", value="")
 
     prev_source = st.session_state.get(STATE_SOURCE_KEY, "")

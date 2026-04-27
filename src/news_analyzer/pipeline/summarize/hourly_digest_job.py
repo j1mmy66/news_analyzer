@@ -44,7 +44,7 @@ def run_hourly_digest_job() -> str | None:
     news_repository = NewsRepository(client, settings.opensearch_news_index)
     digest_repository = HourlyDigestRepository(client, settings.opensearch_digests_index)
 
-    items = news_repository.get_news_for_last_hour()
+    items = news_repository.get_canonical_news_for_last_hour()
     texts = [str(item.get("cleaned_text") or "") for item in items if item.get("cleaned_text")]
     ids = [str(item["external_id"]) for item in items]
     if not texts:
@@ -58,7 +58,10 @@ def run_hourly_digest_job() -> str | None:
             timeout_seconds=settings.gigachat_timeout_seconds,
             max_retries=settings.gigachat_max_retries,
             verify_ssl=settings.gigachat_verify_ssl,
-        )
+        ),
+        item_text_max_chars=settings.summary_item_text_max_chars,
+        hourly_item_text_max_chars=settings.summary_hourly_item_max_chars,
+        hourly_total_text_max_chars=settings.summary_hourly_total_max_chars,
     )
     result = summary_service.summarize_hour(texts)
     if result.status != ProcessingStatus.SUCCESS or not result.summary:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from news_analyzer.pipeline.ingest._status_policy import _finalize_ingest_status
 from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.sources.rbc.collector import RBCNewsCollector
 from news_analyzer.sources.rbc.config import RBCCollectorConfig
@@ -41,12 +42,21 @@ def run_rbc_ingest() -> int:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to parse RBC row")
 
-    stored = repository.upsert_news(normalized)
+    created = repository.upsert_news(normalized)
     stats = collector.last_stats
-    if stats.fatal_errors > 0:
-        raise RuntimeError(
+    return _finalize_ingest_status(
+        logger=logger,
+        source_name="RBC",
+        created=created,
+        collected_rows=len(rows),
+        normalized_rows=len(normalized),
+        fatal_errors=stats.fatal_errors,
+        fatal_error_message=(
             "RBC ingest had fatal fetch failures "
             f"(sections={stats.failed_sections}, fetch_errors={stats.fetch_errors_total})"
-        )
-    logger.info("Stored %s RBC items", stored)
-    return stored
+        ),
+        extra_quality_metrics={
+            "fetch_errors_total": stats.fetch_errors_total,
+            "failed_sections": stats.failed_sections,
+        },
+    )

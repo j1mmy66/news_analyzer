@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -10,6 +11,7 @@ from news_analyzer.settings.app_settings import AppSettings
 from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_client
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -37,10 +39,16 @@ def _format_dt(value: datetime | None) -> str:
 
 def render_feed() -> None:
     st.subheader("News Feed")
-    source = st.selectbox("Source", ["", "rbc"], index=0)
+    source = st.selectbox("Source", ["", "rbc", "lenta"], index=0)
     class_label = st.text_input("Class label")
 
-    page = _query_service().latest_news_page(source=source or None, class_label=class_label or None)
+    try:
+        page = _query_service().latest_news_page(source=source or None, class_label=class_label or None)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to load feed page from OpenSearch")
+        st.error("Could not load news feed: OpenSearch is unavailable.")
+        return
+
     for item in page.items:
         st.markdown(f"### {item.title}")
         st.write(f"Source: {item.source_type or 'n/a'} | Class: {item.class_label or 'n/a'}")

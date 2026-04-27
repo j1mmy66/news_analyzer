@@ -1,6 +1,7 @@
 services:
   opensearch:
     image: opensearchproject/opensearch:2.13.0
+    restart: unless-stopped
     environment:
       - discovery.type=single-node
       - DISABLE_SECURITY_PLUGIN=true
@@ -14,16 +15,44 @@ services:
       - "9600:9600"
     volumes:
       - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.13.0
     depends_on:
-      - opensearch
+      opensearch:
+        condition: service_healthy
     environment:
       - OPENSEARCH_HOSTS=["http://opensearch:9200"]
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
     ports:
       - "5601:5601"
+
+  streamlit:
+    image: apache/airflow:2.9.1
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/opt/airflow/app:/opt/airflow/app/src
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+      - OPENSEARCH_NEWS_INDEX=news_items
+      - OPENSEARCH_DIGESTS_INDEX=hourly_digests
+    volumes:
+      - ./:/opt/airflow/app
+    ports:
+      - "8501:8501"
+    entrypoint: >
+      /bin/bash -c "
+      pip install --no-cache-dir 'streamlit>=1.40.0' 'opensearch-py>=2.5.0' 'requests>=2.31.0' 'PyYAML>=6.0.1' 'cachetools<6' &&
+      streamlit run /opt/airflow/app/src/news_analyzer/apps/streamlit/app.py --server.address 0.0.0.0 --server.port 8501
+      "
 
   postgres:
     image: postgres:15

@@ -23,6 +23,14 @@ rbc:
   backoff_seconds: 0.5
   fallback_enabled: true
   user_agent: "news-analyzer-rbc-collector/1.0"
+
+lenta:
+  rss_url: "https://lenta.ru/rss/news"
+  request_timeout: 20
+  max_retries: 3
+  backoff_seconds: 0.5
+  user_agent: "news-analyzer-lenta-collector/1.0"
+  items_limit: 100
 ```
 
 ## 3. Переменные окружения Airflow
@@ -65,7 +73,7 @@ rbc:
 
 ```bash
 docker compose up airflow-init
-docker compose up -d opensearch opensearch-dashboards postgres airflow-webserver airflow-scheduler superset
+docker compose up -d opensearch opensearch-dashboards postgres airflow-webserver airflow-scheduler superset streamlit
 ```
 
 UI:
@@ -73,12 +81,14 @@ UI:
 - Airflow: `http://localhost:8080` (`admin/admin`)
 - OpenSearch Dashboards: `http://localhost:5601`
 - Superset: `http://localhost:8088` (`admin/admin`)
+- Streamlit: `http://localhost:8501`
 
 ## 6. Запуск DAG-ов
 
 В Airflow включите и запустите:
 
 - `rbc_news_ingest`
+- `lenta_news_ingest`
 - `news_nlp_enrichment`
 - `news_summaries`
 - `news_retry_missing_summaries`
@@ -104,6 +114,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Рекомендуемый запуск (поднимает `opensearch`, дожидается доступности `localhost:9200` и запускает Streamlit с корректными env):
+
+```bash
+./scripts/run_streamlit_local.sh
+```
+
+Альтернативно вручную:
+
 ```bash
 export OPENSEARCH_HOSTS=http://localhost:9200
 export OPENSEARCH_NEWS_INDEX=news_items
@@ -116,12 +134,16 @@ PYTHONPATH=src streamlit run src/news_analyzer/apps/streamlit/app.py
 
 ## 9. Проверка после запуска
 
-1. В `news_items` появляются новости RBC.
+1. В `news_items` появляются новости из источников RBC и Lenta.
 2. Поля `class_label`, `entities`, `summary` заполняются после enrichment/summaries DAG-ов.
 3. В `hourly_digests` появляются hourly digest записи.
 4. В OpenSearch Dashboards видны индексы `news_items` и `hourly_digests`.
 5. В Superset обновляется dashboard `NER Entities Overview`.
 6. В Postgres обновляется `ner_entity_metrics` (после `dashboard_ner_metrics`).
+
+Примечание по Lenta:
+- ingest Lenta использует RSS как список новостей и HTML страницы как источник полного текста;
+- если `full_text` не извлекается (включая anti-bot challenge), такая запись пропускается и не индексируется.
 
 ## 10. Тесты
 

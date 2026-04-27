@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import types
 
 import pytest
 
@@ -74,3 +75,70 @@ def test_hf_classifier_handles_empty_text(tmp_path: Path, monkeypatch) -> None:
     result = model.classify("   ")
     assert result.class_label == ClassLabel.OTHER
     assert result.class_confidence == 0.0
+
+
+def test_hf_classifier_init_raises_when_model_path_missing(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Classifier model path not found"):
+        HFNewsClassificationModel(model_path=tmp_path / "missing-model")
+
+
+@pytest.mark.parametrize(
+    ("device", "expected"),
+    [
+        ("cpu", -1),
+        ("cuda", 0),
+        ("cuda:2", 2),
+    ],
+)
+def test_resolve_device_supported_values(tmp_path: Path, monkeypatch, device: str, expected: int) -> None:
+    model_dir = _prepare_model_dir(tmp_path)
+    monkeypatch.setattr(HFNewsClassificationModel, "_build_pipeline", lambda self: lambda *_a, **_k: [])
+    model = HFNewsClassificationModel(model_path=model_dir, device=device)
+    assert model._resolve_device() == expected
+
+
+def test_resolve_device_raises_for_invalid_cuda_index(tmp_path: Path, monkeypatch) -> None:
+    model_dir = _prepare_model_dir(tmp_path)
+    monkeypatch.setattr(HFNewsClassificationModel, "_build_pipeline", lambda self: lambda *_a, **_k: [])
+    model = HFNewsClassificationModel(model_path=model_dir, device="cuda:x")
+
+    with pytest.raises(ValueError, match="Invalid classifier device"):
+        model._resolve_device()
+
+
+def test_resolve_device_raises_for_unsupported_device(tmp_path: Path, monkeypatch) -> None:
+    model_dir = _prepare_model_dir(tmp_path)
+    monkeypatch.setattr(HFNewsClassificationModel, "_build_pipeline", lambda self: lambda *_a, **_k: [])
+    model = HFNewsClassificationModel(model_path=model_dir, device="tpu")
+
+    with pytest.raises(ValueError, match="Unsupported classifier device"):
+        model._resolve_device()
+
+
+def test_build_pipeline_uses_transformers_pipeline(monkeypatch, tmp_path: Path) -> None:
+    model_dir = _prepare_model_dir(tmp_path)
+    calls: dict[str, object] = {}
+
+    def _fake_pipeline(task: str, model: str, tokenizer: str, device: int):
+        calls["task"] = task
+        calls["model"] = model
+        calls["tokenizer"] = tokenizer
+        calls["device"] = device
+        return "pipeline-object"
+
+    monkeypatch.setitem(__import__("sys").modules, "transformers", types.SimpleNamespace(pipeline=_fake_pipeline))
+
+    model = object.__new__(HFNewsClassificationModel)
+    model._model_path = model_dir
+    model._device = "cuda:1"
+    model._max_length = 512
+
+    pipeline_obj = HFNewsClassificationModel._build_pipeline(model)
+
+    assert pipeline_obj == "pipeline-object"
+    assert calls == {
+        "task": "text-classification",
+        "model": str(model_dir),
+        "tokenizer": str(model_dir),
+        "device": 1,
+    }

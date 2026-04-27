@@ -6,6 +6,7 @@ import pendulum
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
+from news_analyzer.pipeline.dedup.semantic_dedup_job import run_semantic_dedup_job
 from news_analyzer.pipeline.summarize.hourly_digest_job import run_hourly_digest_job
 from news_analyzer.pipeline.summarize.item_summary_job import run_item_summary_job
 
@@ -23,9 +24,10 @@ with DAG(
     catchup=False,
     tags=["summaries", "news"],
 ) as dag:
+    dedup_task = PythonOperator(task_id="semantic_dedup", python_callable=run_semantic_dedup_job)
     item_task = PythonOperator(task_id="item_summaries", python_callable=run_item_summary_job)
     digest_task = PythonOperator(task_id="hourly_digest", python_callable=run_hourly_digest_job)
 
-    item_task >> digest_task
+    dedup_task >> item_task >> digest_task
 
 __all__ = ["dag"]

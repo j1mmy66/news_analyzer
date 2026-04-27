@@ -9,7 +9,15 @@ from typing import Iterable
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import ConflictError
 
-from news_analyzer.domain.models import ClassificationResult, Entity, HourlyDigest, NormalizedNewsItem, SummaryResult
+from news_analyzer.domain.enums import ProcessingStatus
+from news_analyzer.domain.models import (
+    ClassificationResult,
+    DedupMetadataUpdate,
+    Entity,
+    HourlyDigest,
+    NormalizedNewsItem,
+    SummaryResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +32,9 @@ class NewsRepository:
         self._index_name = index_name
 
     def upsert_news(self, items: Iterable[NormalizedNewsItem]) -> int:
-        success = 0
+        created = 0
+        skipped_conflicts = 0
+        dedup_updated_at = datetime.now(timezone.utc).isoformat()
         for item in items:
             body = {
                 "source_type": item.source_type.value,
@@ -33,17 +43,45 @@ class NewsRepository:
                 "source_metadata": item.source_metadata,
                 "raw_text": item.raw_text,
                 "cleaned_text": item.cleaned_text,
+                "dedup_is_canonical": True,
+                "dedup_canonical_external_id": item.external_id,
+                "dedup_similarity_to_canonical": 1.0,
+                "dedup_updated_at": dedup_updated_at,
             }
-            self._client.index(index=self._index_name, id=item.external_id, body=body)
-            success += 1
-        return success
+            try:
+                self._client.index(
+                    index=self._index_name,
+                    id=item.external_id,
+                    op_type="create",
+                    body=body,
+                )
+                created += 1
+            except ConflictError:
+                skipped_conflicts += 1
 
-    def set_enrichment(self, external_id: str, entities: list[Entity], classification: ClassificationResult) -> None:
+        logger.info(
+            "News ingest upsert completed: created=%s skipped_conflicts=%s",
+            created,
+            skipped_conflicts,
+        )
+        return created
+
+    def set_enrichment(
+        self,
+        external_id: str,
+        entities: list[Entity],
+        classification: ClassificationResult,
+        *,
+        enrichment_status: ProcessingStatus = ProcessingStatus.SUCCESS,
+        enrichment_error_code: str | None = None,
+    ) -> None:
         body = {
             "doc": {
                 "entities": [asdict(value) for value in entities],
                 "class_label": classification.class_label.value,
                 "class_confidence": classification.class_confidence,
+                "enrichment_status": enrichment_status.value,
+                "enrichment_error_code": enrichment_error_code,
             }
         }
         for attempt in range(1, self._ENRICHMENT_RETRY_ATTEMPTS + 1):
@@ -85,55 +123,36 @@ class NewsRepository:
                 body={"doc": {"hourly_digest_id": digest_id}},
             )
 
-    def get_recent_news_without_summary(self, limit: int = 100) -> list[dict[str, object]]:
-        response = self._client.search(
-            index=self._index_name,
-            body={
-                "size": limit,
-                "query": {
-                    "bool": {
-                        "must": [
-                            {
-                                "range": {
-                                    "published_at": {
-                                        "gte": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-                                    }
-                                }
-                            }
-                        ],
-                        "must_not": [{"exists": {"field": "summary"}}],
+    def set_dedup_metadata_bulk(
+        self,
+        updates: Iterable[DedupMetadataUpdate],
+        *,
+        updated_at: datetime | None = None,
+    ) -> None:
+        updated_at_iso = (updated_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
+        for update in updates:
+            self._client.update(
+                index=self._index_name,
+                id=update.external_id,
+                body={
+                    "doc": {
+                        "dedup_is_canonical": update.is_canonical,
+                        "dedup_canonical_external_id": update.canonical_external_id,
+                        "dedup_similarity_to_canonical": update.similarity_to_canonical,
+                        "dedup_updated_at": updated_at_iso,
                     }
                 },
-                "sort": [{"published_at": {"order": "desc"}}],
-            },
-        )
-        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+            )
 
-    def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
-        now_utc = datetime.now(timezone.utc)
-        window_start = now_utc - timedelta(hours=hours)
-        response = self._client.search(
-            index=self._index_name,
-            body={
-                "size": limit,
-                "query": {
-                    "bool": {
-                        "must": [{"range": {"published_at": {"gte": window_start.isoformat(), "lte": now_utc.isoformat()}}}],
-                        "must_not": [{"exists": {"field": "entities"}}],
-                    }
-                },
-                "sort": [{"published_at": {"order": "desc"}}],
-            },
-        )
-        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
-
-    def get_news_for_last_hour(self, now: datetime | None = None, limit: int = 300) -> list[dict[str, object]]:
-        return self.get_news_for_last_hours(hours=1, now=now, limit=limit)
-
-    def get_news_for_last_hours(self, hours: int, now: datetime | None = None, limit: int = 300) -> list[dict[str, object]]:
+    def get_news_for_dedup_candidates(
+        self,
+        *,
+        lookback_hours: int = 24,
+        now: datetime | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, object]]:
         now_utc = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
-        window_start = now_utc - timedelta(hours=hours)
-
+        window_start = now_utc - timedelta(hours=lookback_hours)
         response = self._client.search(
             index=self._index_name,
             body={
@@ -146,10 +165,134 @@ class NewsRepository:
                         }
                     }
                 },
+                "sort": [{"published_at": {"order": "asc"}}, {"external_id": {"order": "asc"}}],
+            },
+        )
+        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+
+    def get_recent_news_without_summary(
+        self,
+        limit: int = 100,
+        *,
+        canonical_only: bool = False,
+    ) -> list[dict[str, object]]:
+        must_clauses: list[dict[str, object]] = [
+            {
+                "range": {
+                    "published_at": {
+                        "gte": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+                    }
+                }
+            }
+        ]
+        if canonical_only:
+            must_clauses.append(self._canonical_filter_clause())
+
+        response = self._client.search(
+            index=self._index_name,
+            body={
+                "size": limit,
+                "query": {
+                    "bool": {
+                        "must": must_clauses,
+                        "must_not": [{"exists": {"field": "summary"}}],
+                    }
+                },
+                "sort": [{"published_at": {"order": "desc"}}],
+            },
+        )
+        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+
+    def get_recent_canonical_news_without_summary(self, limit: int = 100) -> list[dict[str, object]]:
+        return self.get_recent_news_without_summary(limit=limit, canonical_only=True)
+
+    def get_recent_news_without_enrichment(self, limit: int = 300, hours: int = 24) -> list[dict[str, object]]:
+        now_utc = datetime.now(timezone.utc)
+        window_start = now_utc - timedelta(hours=hours)
+        retry_candidates: list[dict[str, object]] = [
+            {"bool": {"must_not": [{"exists": {"field": "entities"}}]}},
+            {"term": {"enrichment_status": ProcessingStatus.FAILED.value}},
+        ]
+        response = self._client.search(
+            index=self._index_name,
+            body={
+                "size": limit,
+                "query": {
+                    "bool": {
+                        "must": [{"range": {"published_at": {"gte": window_start.isoformat(), "lte": now_utc.isoformat()}}}],
+                        "should": retry_candidates,
+                        "minimum_should_match": 1,
+                    }
+                },
+                "sort": [{"published_at": {"order": "desc"}}],
+            },
+        )
+        return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+
+    def get_news_for_last_hour(
+        self,
+        now: datetime | None = None,
+        limit: int = 300,
+        *,
+        canonical_only: bool = False,
+    ) -> list[dict[str, object]]:
+        return self.get_news_for_last_hours(hours=1, now=now, limit=limit, canonical_only=canonical_only)
+
+    def get_canonical_news_for_last_hour(self, now: datetime | None = None, limit: int = 300) -> list[dict[str, object]]:
+        return self.get_news_for_last_hour(now=now, limit=limit, canonical_only=True)
+
+    def get_news_for_last_hours(
+        self,
+        hours: int,
+        now: datetime | None = None,
+        limit: int = 300,
+        *,
+        canonical_only: bool = False,
+    ) -> list[dict[str, object]]:
+        now_utc = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+        window_start = now_utc - timedelta(hours=hours)
+
+        range_query: dict[str, object] = {
+            "range": {
+                "published_at": {
+                    "gte": window_start.isoformat(),
+                    "lte": now_utc.isoformat(),
+                }
+            }
+        }
+        query: dict[str, object] = range_query
+        if canonical_only:
+            query = {"bool": {"must": [range_query, self._canonical_filter_clause()]}}
+
+        response = self._client.search(
+            index=self._index_name,
+            body={
+                "size": limit,
+                "query": query,
                 "sort": [{"published_at": {"order": "asc"}}],
             },
         )
         return [hit["_source"] | {"external_id": hit["_id"]} for hit in response["hits"]["hits"]]
+
+    def get_canonical_news_for_last_hours(
+        self,
+        hours: int,
+        now: datetime | None = None,
+        limit: int = 300,
+    ) -> list[dict[str, object]]:
+        return self.get_news_for_last_hours(hours=hours, now=now, limit=limit, canonical_only=True)
+
+    @staticmethod
+    def _canonical_filter_clause() -> dict[str, object]:
+        return {
+            "bool": {
+                "should": [
+                    {"term": {"dedup_is_canonical": True}},
+                    {"bool": {"must_not": [{"exists": {"field": "dedup_is_canonical"}}]}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
 
 
 class HourlyDigestRepository:

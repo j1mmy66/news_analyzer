@@ -5,6 +5,17 @@ from os import getenv
 from pathlib import Path
 
 
+def _default_opensearch_hosts() -> str:
+    explicit = getenv("OPENSEARCH_HOSTS")
+    if explicit:
+        return explicit
+    # In docker-compose network service name is resolvable as "opensearch".
+    if Path("/.dockerenv").exists():
+        return "http://opensearch:9200"
+    # For local host runs fallback to mapped docker port.
+    return "http://localhost:9200"
+
+
 @dataclass(frozen=True)
 class AppSettings:
     opensearch_hosts: list[str]
@@ -35,11 +46,21 @@ class AppSettings:
     ner_max_retries: int = 2
     ner_retry_backoff_seconds: float = 0.5
     ner_retry_backoff_cap_seconds: float = 5.0
+    ner_text_max_chars: int = 3000
+    summary_item_text_max_chars: int = 5000
+    summary_hourly_item_max_chars: int = 1500
+    summary_hourly_total_max_chars: int = 10000
     sources_config_path: Path = Path("src/news_analyzer/settings/sources.yaml")
+    dedup_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    dedup_similarity_threshold: float = 0.90
+    dedup_window_hours: int = 3
+    dedup_lookback_hours: int = 24
+    dedup_text_chars: int = 1000
+    dedup_device: str = "cpu"
 
     @classmethod
     def from_env(cls) -> "AppSettings":
-        hosts_raw = getenv("OPENSEARCH_HOSTS", "http://opensearch:9200")
+        hosts_raw = _default_opensearch_hosts()
         return cls(
             opensearch_hosts=[value.strip() for value in hosts_raw.split(",") if value.strip()],
             opensearch_news_index=getenv("OPENSEARCH_NEWS_INDEX", "news_items"),
@@ -69,5 +90,18 @@ class AppSettings:
             ner_max_retries=int(getenv("NER_MAX_RETRIES", "2")),
             ner_retry_backoff_seconds=float(getenv("NER_RETRY_BACKOFF_SECONDS", "0.5")),
             ner_retry_backoff_cap_seconds=float(getenv("NER_RETRY_BACKOFF_CAP_SECONDS", "5")),
+            ner_text_max_chars=int(getenv("NER_TEXT_MAX_CHARS", "3000")),
+            summary_item_text_max_chars=int(getenv("SUMMARY_ITEM_TEXT_MAX_CHARS", "5000")),
+            summary_hourly_item_max_chars=int(getenv("SUMMARY_HOURLY_ITEM_MAX_CHARS", "1500")),
+            summary_hourly_total_max_chars=int(getenv("SUMMARY_HOURLY_TOTAL_MAX_CHARS", "10000")),
             sources_config_path=Path(getenv("SOURCES_CONFIG_PATH", "src/news_analyzer/settings/sources.yaml")),
+            dedup_model_name=getenv(
+                "DEDUP_MODEL_NAME",
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            ),
+            dedup_similarity_threshold=float(getenv("DEDUP_SIMILARITY_THRESHOLD", "0.90")),
+            dedup_window_hours=int(getenv("DEDUP_WINDOW_HOURS", "3")),
+            dedup_lookback_hours=int(getenv("DEDUP_LOOKBACK_HOURS", "24")),
+            dedup_text_chars=int(getenv("DEDUP_TEXT_CHARS", "1000")),
+            dedup_device=getenv("DEDUP_DEVICE", "cpu"),
         )

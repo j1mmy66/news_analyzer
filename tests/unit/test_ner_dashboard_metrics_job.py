@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import builtins
+import types
 
 from news_analyzer.pipeline.dashboard import ner_metrics_job
 from news_analyzer.pipeline.dashboard.ner_metrics_job import EntityMetricRow
@@ -72,6 +74,7 @@ def test_aggregate_entity_metrics_excludes_configured_entities() -> None:
                 {"normalized": "РБК", "text": "РБК", "label": "ORG"},
                 {"normalized": "max", "text": "Max", "label": "ORG"},
                 {"normalized": "maх", "text": "MAХ", "label": "ORG"},
+                {"normalized": "maх!", "text": "MAХ!", "label": "ORG"},
                 {"normalized": "москва", "text": "Москва", "label": "LOC"},
             ],
         }
@@ -180,7 +183,7 @@ def test_run_ner_dashboard_metrics_job_end_to_end_with_stubs(tmp_path: Path, mon
             assert limit == 5000
             return [
                 {
-                    "published_at": "2026-03-15T11:00:00+00:00",
+                    "published_at": (now - timedelta(hours=1)).isoformat(),
                     "entities": [{"normalized": "москва", "text": "Москва", "label": "LOC"}],
                 }
             ]
@@ -192,3 +195,84 @@ def test_run_ner_dashboard_metrics_job_end_to_end_with_stubs(tmp_path: Path, mon
 
     written = ner_metrics_job.run_ner_dashboard_metrics_job()
     assert written == 1
+
+
+def test_to_utc_handles_supported_and_unsupported_values() -> None:
+    aware = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+    naive = datetime(2026, 3, 15, 12, 0)
+
+    assert ner_metrics_job._to_utc(None) is None
+    assert ner_metrics_job._to_utc(aware) == aware
+    assert ner_metrics_job._to_utc(naive) == naive.replace(tzinfo=timezone.utc)
+    assert ner_metrics_job._to_utc("2026-03-15T12:00:00+00:00") == aware
+    assert ner_metrics_job._to_utc("bad-date") is None
+    assert ner_metrics_job._to_utc(123) is None  # type: ignore[arg-type]
+
+
+def test_table_sql_raises_for_invalid_table_name() -> None:
+    try:
+        ner_metrics_job._table_sql("bad-table", "SELECT 1 FROM {table_name}")
+    except ValueError as exc:
+        assert "Invalid table name" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid table name")
+
+
+def test_table_sql_falls_back_to_format_without_psycopg(monkeypatch) -> None:
+    original_import = builtins.__import__
+
+    def _fake_import(name, *args, **kwargs):
+        if name == "psycopg":
+            raise ModuleNotFoundError("psycopg unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    rendered = ner_metrics_job._table_sql("valid_table", "TRUNCATE TABLE {table_name}")
+    assert rendered == "TRUNCATE TABLE valid_table"
+
+
+def test_aggregate_entity_metrics_ignores_invalid_entities_shape() -> None:
+    now_utc = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+    items = [
+        {"published_at": "2026-03-15T11:00:00+00:00", "entities": "bad-shape"},
+        {"published_at": "2026-03-15T11:00:00+00:00", "entities": [123, "x", None]},
+        {
+            "published_at": "2026-03-15T11:00:00+00:00",
+            "entities": [{"normalized": "москва", "label": ""}, {"text": "", "label": "LOC"}],
+        },
+    ]
+
+    assert ner_metrics_job._aggregate_entity_metrics(items, now_utc=now_utc) == []
+
+
+def test_aggregate_entity_metrics_skips_items_older_than_24h() -> None:
+    now_utc = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+    items = [
+        {
+            "published_at": "2026-03-14T10:59:59+00:00",
+            "entities": [{"normalized": "москва", "text": "Москва", "label": "LOC"}],
+        }
+    ]
+    assert ner_metrics_job._aggregate_entity_metrics(items, now_utc=now_utc) == []
+
+
+def test_connect_postgres_uses_psycopg_connect(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_connect(**kwargs):
+        captured.update(kwargs)
+        return "conn"
+
+    monkeypatch.setitem(__import__("sys").modules, "psycopg", types.SimpleNamespace(connect=_fake_connect))
+
+    connection = ner_metrics_job._connect_postgres(
+        host="postgres",
+        port=5432,
+        database="airflow",
+        user="airflow",
+        password="airflow",
+    )
+
+    assert connection == "conn"
+    assert captured["host"] == "postgres"
+    assert captured["autocommit"] is False

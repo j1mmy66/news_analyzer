@@ -62,6 +62,42 @@ def test_run_rbc_ingest_raises_on_fatal_fetch_failures(monkeypatch: pytest.Monke
         rbc_ingest.run_rbc_ingest()
 
 
+def test_run_rbc_ingest_degraded_success_when_fatal_but_created(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    class _Collector:
+        def __init__(self, config: RBCCollectorConfig) -> None:
+            self.last_stats = RBCCollectStats(
+                fatal_errors=1,
+                fetch_errors_total=2,
+                failed_sections=["economics"],
+            )
+
+        def collect_latest(self) -> list[dict[str, object]]:
+            return [{"url": "https://www.rbc.ru/x"}]
+
+    monkeypatch.setattr(rbc_ingest.AppSettings, "from_env", classmethod(lambda cls: _FakeSettings()))
+    monkeypatch.setattr(
+        rbc_ingest.RBCCollectorConfig,
+        "from_sources_file",
+        classmethod(lambda cls, path: RBCCollectorConfig(sections=["economics"])),
+    )
+    monkeypatch.setattr(rbc_ingest, "RBCNewsCollector", _Collector)
+    monkeypatch.setattr(rbc_ingest, "build_client", lambda config: object())
+    monkeypatch.setattr(rbc_ingest, "OpenSearchIndexManager", _FakeIndexManager)
+    monkeypatch.setattr(rbc_ingest, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(rbc_ingest, "parse_rbc_article", lambda row: object())
+    caplog.set_level("WARNING")
+
+    result = rbc_ingest.run_rbc_ingest()
+
+    assert result == 1
+    assert "status=degraded" in caplog.text
+    assert "created=1" in caplog.text
+    assert "collected_rows=1" in caplog.text
+    assert "normalized_rows=1" in caplog.text
+    assert "fatal_errors=1" in caplog.text
+    assert "fetch_errors_total=2" in caplog.text
+
+
 def test_run_rbc_ingest_returns_stored_count_without_fatal_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Collector:
         def __init__(self, config: RBCCollectorConfig) -> None:
@@ -80,5 +116,28 @@ def test_run_rbc_ingest_returns_stored_count_without_fatal_errors(monkeypatch: p
     monkeypatch.setattr(rbc_ingest, "build_client", lambda config: object())
     monkeypatch.setattr(rbc_ingest, "OpenSearchIndexManager", _FakeIndexManager)
     monkeypatch.setattr(rbc_ingest, "NewsRepository", _FakeRepository)
+
+    assert rbc_ingest.run_rbc_ingest() == 0
+
+
+def test_run_rbc_ingest_skips_rows_that_fail_to_parse(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Collector:
+        def __init__(self, config: RBCCollectorConfig) -> None:
+            self.last_stats = RBCCollectStats()
+
+        def collect_latest(self) -> list[dict[str, object]]:
+            return [{"url": "https://www.rbc.ru/x"}]
+
+    monkeypatch.setattr(rbc_ingest.AppSettings, "from_env", classmethod(lambda cls: _FakeSettings()))
+    monkeypatch.setattr(
+        rbc_ingest.RBCCollectorConfig,
+        "from_sources_file",
+        classmethod(lambda cls, path: RBCCollectorConfig(sections=["economics"])),
+    )
+    monkeypatch.setattr(rbc_ingest, "RBCNewsCollector", _Collector)
+    monkeypatch.setattr(rbc_ingest, "build_client", lambda config: object())
+    monkeypatch.setattr(rbc_ingest, "OpenSearchIndexManager", _FakeIndexManager)
+    monkeypatch.setattr(rbc_ingest, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(rbc_ingest, "parse_rbc_article", lambda row: (_ for _ in ()).throw(RuntimeError("bad-row")))
 
     assert rbc_ingest.run_rbc_ingest() == 0

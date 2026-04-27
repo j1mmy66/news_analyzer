@@ -3,6 +3,7 @@ from enum import Enum
 
 class SourceType(str, Enum):
     RBC = "rbc"
+    LENTA = "lenta"
 
 
 class ProcessingStatus(str, Enum):

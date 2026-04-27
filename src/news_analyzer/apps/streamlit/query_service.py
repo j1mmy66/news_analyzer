@@ -21,13 +21,13 @@ class StreamlitQueryService:
         source: str | None = None,
         class_label: str | None = None,
     ) -> NewsPage:
-        must: list[dict[str, object]] = []
+        must: list[dict[str, object]] = [self._canonical_filter_clause()]
         if source:
             must.append({"term": {"source_type": source}})
         if class_label:
             must.append({"term": {"class_label": class_label}})
 
-        query = {"match_all": {}} if not must else {"bool": {"must": must}}
+        query = {"bool": {"must": must}}
         body: dict[str, Any] = {
             "size": size + 1,
             "query": query,
@@ -126,3 +126,15 @@ class StreamlitQueryService:
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _canonical_filter_clause() -> dict[str, object]:
+        return {
+            "bool": {
+                "should": [
+                    {"term": {"dedup_is_canonical": True}},
+                    {"bool": {"must_not": [{"exists": {"field": "dedup_is_canonical"}}]}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }

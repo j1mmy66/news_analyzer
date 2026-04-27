@@ -7,3 +7,11 @@ rbc:
   backoff_seconds: 0.5
   fallback_enabled: true
   user_agent: "news-analyzer-rbc-collector/1.0"
+
+lenta:
+  rss_url: "https://lenta.ru/rss/news"
+  request_timeout: 20
+  max_retries: 3
+  backoff_seconds: 0.5
+  user_agent: "news-analyzer-lenta-collector/1.0"
+  items_limit: 100
