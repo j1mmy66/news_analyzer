@@ -1,0 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+-r requirements.txt
+
+rich>=13.8,<14
+torch==2.6.0+cpu

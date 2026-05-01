@@ -1,153 +1,69 @@
-# Инструкция По Запуску
+# Описание запуска программы
 
-Этот документ содержит практические шаги по локальному запуску контура ingestion + NLP + summaries + dashboards.
+Полный контур разворачивается через Docker Compose. Локальные NLP-модели в
+репозиторий не входят, поэтому после клонирования их необходимо скачать отдельно в каталог
+models/.
 
-## 1. Предварительные требования
+## Предварительные требования
 
-- Docker и Docker Compose
-- Python 3.11+ (для локального запуска Streamlit и тестов)
-- Локальные артефакты моделей NER/классификации (см. ниже)
+Перед развертыванием должны быть установлены:
+- Git;
+- Docker и Docker Compose;
+- Python 3.11+;
+- доступ к сети интернет для загрузки Python-зависимостей и моделей;
+- ключ доступа к Sber GigaChat, если требуется генерация суммаризаций.
 
-## 2. Конфигурация источников
+GPU для запуска не требуется. Базовый сценарий поддерживает работу на CPU.
 
-Подготовьте `src/news_analyzer/settings/sources.yaml`:
+## Развертывание
 
-```yaml
-rbc:
-  sections:
-    - economics
-    - society
-  request_timeout: 20
-  pages_limit: 2
-  max_retries: 3
-  backoff_seconds: 0.5
-  fallback_enabled: true
-  user_agent: "news-analyzer-rbc-collector/1.0"
+Команды подготовки выполняются один раз после клонирования репозитория; дальнейшие
+запуски выполняются скриптом `./scripts/start_project.sh`.
 
-lenta:
-  rss_url: "https://lenta.ru/rss/news"
-  request_timeout: 20
-  max_retries: 3
-  backoff_seconds: 0.5
-  user_agent: "news-analyzer-lenta-collector/1.0"
-  items_limit: 100
 ```
+git clone https://github.com/j1mmy66/news_analyzer.git
+cd news_analyzer
 
-## 3. Переменные окружения Airflow
+cat > .env <<'EOF'
+AIRFLOW__WEBSERVER__SECRET_KEY=change-me-please
+GIGACHAT_AUTH_KEY=
+GIGACHAT_SCOPE=GIGACHAT_API_PERS
+GIGACHAT_MODEL=GigaChat
+GIGACHAT_TIMEOUT_SECONDS=15
+GIGACHAT_MAX_RETRIES=3
+GIGACHAT_VERIFY_SSL=true
+EOF
 
-Убедитесь, что в `docker-compose.yml` для `airflow-webserver` и `airflow-scheduler` заданы:
+mkdir -p models
 
-- `SOURCES_CONFIG_PATH=src/news_analyzer/settings/sources.yaml`
-- `OPENSEARCH_HOSTS=http://opensearch:9200`
-- `GIGACHAT_AUTH_KEY=<gigachat_authorization_key>`
-- `GIGACHAT_SCOPE=GIGACHAT_API_PERS`
-- `GIGACHAT_MODEL=GigaChat`
-- `GIGACHAT_TIMEOUT_SECONDS=15`
-- `GIGACHAT_MAX_RETRIES=3`
-- `GIGACHAT_VERIFY_SSL=true`
-- `GIGACHAT_API_KEY=<legacy_optional_fallback>`
-- `NER_SLOVNET_MODEL_PATH=/opt/airflow/app/models/slovnet_ner_news_v1.tar`
-- `NER_NAVEC_PATH=/opt/airflow/app/models/navec_news_v1_1B_250K_300d_100q.tar`
-- `NER_MAX_RETRIES=2`
-- `NER_RETRY_BACKOFF_SECONDS=0.5`
-- `NER_RETRY_BACKOFF_CAP_SECONDS=5`
-- `CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier`
-- `CLASSIFIER_DEVICE=cpu`
-- `CLASSIFIER_MAX_LENGTH=512`
-- `DASHBOARD_PG_HOST=postgres`
-- `DASHBOARD_PG_PORT=5432`
-- `DASHBOARD_PG_DATABASE=airflow`
-- `DASHBOARD_PG_USER=airflow`
-- `DASHBOARD_PG_PASSWORD=airflow`
-- `DASHBOARD_PG_TABLE=ner_entity_metrics`
+curl -L https://storage.yandexcloud.net/natasha-
+slovnet/packs/slovnet_ner_news_v1.tar \
+-o models/slovnet_ner_news_v1.tar
 
-## 4. Модели
+curl -L https://storage.yandexcloud.net/natasha-
+navec/packs/navec_news_v1_1B_250K_300d_100q.tar \
+-o models/navec_news_v1_1B_250K_300d_100q.tar
 
-Подготовьте локально директорию `models/`:
+python3 -m pip install "huggingface_hub[cli]"
 
-- `models/slovnet_ner_news_v1.tar`
-- `models/navec_news_v1_1B_250K_300d_100q.tar`
-- `models/any-news-classifier/` (snapshot `data-silence/any-news-classifier`)
+hf download data-silence/rus-news-classifier \
+--local-dir models/any-news-classifier
 
-## 5. Подъём инфраструктуры
+hf download sentence-transformers/paraphrase-multilingual-MiniLM-
+L12-v2 \
+--local-dir models/dedup-paraphrase-multilingual-MiniLM-L12-v2
 
-```bash
-docker compose up airflow-init
-docker compose up -d opensearch opensearch-dashboards postgres airflow-webserver airflow-scheduler superset streamlit
+./scripts/start_project.sh
 ```
+Если требуется суммаризаций, в .env необходимо указать значение GIGACHAT_AUTH_KEY
+до запуска скрипта.
+После успешного завершения `./scripts/start_project.sh` скрипт выведет адреса сервисов:
+- Airflow: http://localhost:8080 (admin / admin);
+- Streamlit: http://localhost:8501;
+- OpenSearch: http://localhost:9200;
+- Superset: http://localhost:8088 (admin / admin);
 
-UI:
-
-- Airflow: `http://localhost:8080` (`admin/admin`)
-- OpenSearch Dashboards: `http://localhost:5601`
-- Superset: `http://localhost:8088` (`admin/admin`)
-- Streamlit: `http://localhost:8501`
-
-## 6. Запуск DAG-ов
-
-В Airflow включите и запустите:
-
-- `news_unified_pipeline`
-
-## 7. Импорт Superset assets
-
-```bash
-docker compose exec -T superset superset import-directory -o /app/superset/assets
-```
-
-После импорта появятся:
-
-- `news_analyzer_postgres` (database)
-- `public.ner_entity_metrics` (dataset)
-- `NER Entities Overview` (dashboard)
-
-## 8. Локальный запуск Streamlit
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Рекомендуемый запуск (поднимает `opensearch`, дожидается доступности `localhost:9200` и запускает Streamlit с корректными env):
-
-```bash
-./scripts/run_streamlit_local.sh
-```
-
-Альтернативно вручную:
-
-```bash
-export OPENSEARCH_HOSTS=http://localhost:9200
-export OPENSEARCH_NEWS_INDEX=news_items
-export OPENSEARCH_DIGESTS_INDEX=hourly_digests
-```
-
-```bash
-PYTHONPATH=src streamlit run src/news_analyzer/apps/streamlit/app.py
-```
-
-## 9. Проверка после запуска
-
-1. В `news_items` появляются новости из источников RBC и Lenta.
-2. Поля `class_label`, `entities`, `summary` заполняются после прохода `news_unified_pipeline`.
-3. В `hourly_digests` появляются hourly digest записи.
-4. В OpenSearch Dashboards видны индексы `news_items` и `hourly_digests`.
-5. В Superset обновляется dashboard `NER Entities Overview`.
-6. В Postgres обновляется `ner_entity_metrics` (в рамках `news_unified_pipeline`).
-
-Примечание по Lenta:
-- ingest Lenta использует RSS как список новостей и HTML страницы как источник полного текста;
-- если `full_text` не извлекается (включая anti-bot challenge), такая запись пропускается и не индексируется.
-
-## 10. Тесты
-
-```bash
-python3 -m pytest -q
-```
-
-Если `pytest` не найден:
-
-```bash
-pip install -r requirements.txt
-```
+OpenSearch Dashboards: http://localhost:5601.
+Далее необходимо выполнить действия:
+- 1 Открыть Airflow по адресу http://localhost:8080.
+- 2 Включить и запустить DAG news_unified_pipeline.
