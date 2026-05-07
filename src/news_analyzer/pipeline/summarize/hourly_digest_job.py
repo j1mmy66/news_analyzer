@@ -10,9 +10,31 @@ from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_clie
 from news_analyzer.storage.opensearch.indices import OpenSearchIndexManager
 from news_analyzer.storage.opensearch.repositories import HourlyDigestRepository, NewsRepository
 from news_analyzer.summarization.gigachat.client import GigaChatClient
-from news_analyzer.summarization.service import SummaryService
+from news_analyzer.summarization.service import CONTENT_RESTRICTED_ERROR_CODE, SummaryService
 
 logger = logging.getLogger(__name__)
+
+
+def _digest_item_summary(item: dict[str, object]) -> tuple[str, str] | None:
+    summary_value = item.get("summary")
+    if not isinstance(summary_value, str):
+        return None
+    summary = summary_value.strip()
+    if not summary:
+        return None
+
+    error_code = item.get("summary_error_code")
+    if isinstance(error_code, str) and error_code == CONTENT_RESTRICTED_ERROR_CODE:
+        return None
+
+    status = item.get("summary_status")
+    if status is not None and status != ProcessingStatus.SUCCESS.value:
+        return None
+
+    external_id = item.get("external_id")
+    if external_id is None:
+        return None
+    return str(external_id), summary
 
 
 def run_hourly_digest_job() -> str | None:
@@ -45,8 +67,9 @@ def run_hourly_digest_job() -> str | None:
     digest_repository = HourlyDigestRepository(client, settings.opensearch_digests_index)
 
     items = news_repository.get_canonical_news_for_last_hour()
-    texts = [str(item.get("cleaned_text") or "") for item in items if item.get("cleaned_text")]
-    ids = [str(item["external_id"]) for item in items]
+    digest_inputs = [value for value in (_digest_item_summary(item) for item in items) if value is not None]
+    texts = [summary for _, summary in digest_inputs]
+    ids = [external_id for external_id, _ in digest_inputs]
     if not texts:
         return None
 

@@ -49,13 +49,23 @@ def run_item_summary_job(limit: int = 100) -> int:
         hourly_total_text_max_chars=settings.summary_hourly_total_max_chars,
     )
 
-    processed = 0
+    attempted = 0
+    saved = 0
+    failed = 0
     for item in repository.get_recent_canonical_news_without_summary(limit=limit):
+        attempted += 1
         external_id = str(item["external_id"])
         text = str(item.get("cleaned_text") or "")
         result = summary_service.summarize_item(text)
-        repository.set_summary(external_id, result)
-        processed += 1
+        try:
+            repository.set_summary(external_id, result)
+            saved += 1
+        except Exception:  # noqa: BLE001
+            failed += 1
+            logger.exception("Summary persistence failed for %s", external_id)
 
-    logger.info("Item summaries processed: %s", processed)
-    return processed
+    if failed > 0:
+        logger.warning("Item summaries completed with failures: attempted=%s saved=%s failed=%s", attempted, saved, failed)
+    else:
+        logger.info("Item summaries completed: attempted=%s saved=%s failed=%s", attempted, saved, failed)
+    return saved

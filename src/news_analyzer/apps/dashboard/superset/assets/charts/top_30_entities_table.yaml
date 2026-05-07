@@ -13,7 +13,7 @@ params:
     - count_24h
     - last_seen_at
   order_by_cols:
-    - '["count_24h", false]'
+    - '["count_3h", false]'
   row_limit: 100
   server_page_length: 100
 cache_timeout: null

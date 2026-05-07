@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TypeAlias
+
+SortValue: TypeAlias = str | int | float
 
 
 @dataclass(frozen=True)
 class NewsCursor:
-    published_at: str
+    published_at: SortValue
     external_id: str
 
-    def to_search_after(self) -> list[str]:
+    def to_search_after(self) -> list[SortValue]:
         return [self.published_at, self.external_id]
 
     @classmethod
@@ -17,7 +20,11 @@ class NewsCursor:
         if len(sort) < 2:
             return None
         published_at, external_id = sort[0], sort[1]
-        if not isinstance(published_at, str) or not isinstance(external_id, str):
+        if (
+            not isinstance(published_at, (str, int, float))
+            or isinstance(published_at, bool)
+            or not isinstance(external_id, str)
+        ):
             return None
         return cls(published_at=published_at, external_id=external_id)
 

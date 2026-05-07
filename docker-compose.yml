@@ -81,6 +81,7 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DEDUP_MODEL_NAME=${DEDUP_MODEL_NAME:-/opt/airflow/app/models/dedup-paraphrase-multilingual-MiniLM-L12-v2}
       - DASHBOARD_PG_HOST=postgres
       - DASHBOARD_PG_PORT=5432
       - DASHBOARD_PG_DATABASE=airflow
@@ -125,6 +126,7 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DEDUP_MODEL_NAME=${DEDUP_MODEL_NAME:-/opt/airflow/app/models/dedup-paraphrase-multilingual-MiniLM-L12-v2}
       - DASHBOARD_PG_HOST=postgres
       - DASHBOARD_PG_PORT=5432
       - DASHBOARD_PG_DATABASE=airflow
@@ -170,6 +172,7 @@ services:
       - CLASSIFIER_MODEL_PATH=/opt/airflow/app/models/any-news-classifier
       - CLASSIFIER_DEVICE=cpu
       - CLASSIFIER_MAX_LENGTH=512
+      - DEDUP_MODEL_NAME=${DEDUP_MODEL_NAME:-/opt/airflow/app/models/dedup-paraphrase-multilingual-MiniLM-L12-v2}
       - DASHBOARD_PG_HOST=postgres
       - DASHBOARD_PG_PORT=5432
       - DASHBOARD_PG_DATABASE=airflow

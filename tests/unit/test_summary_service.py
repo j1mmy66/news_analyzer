@@ -1,6 +1,10 @@
 from news_analyzer.domain.enums import ProcessingStatus
-from news_analyzer.summarization.gigachat.client import GigaChatError
-from news_analyzer.summarization.service import SummaryService
+from news_analyzer.summarization.gigachat.client import GigaChatContentRestrictedError, GigaChatError
+from news_analyzer.summarization.service import (
+    CONTENT_RESTRICTED_ERROR_CODE,
+    CONTENT_RESTRICTED_SUMMARY_TEXT,
+    SummaryService,
+)
 
 
 class _OkClient:
@@ -11,6 +15,11 @@ class _OkClient:
 class _FailClient:
     def summarize(self, prompt: str) -> str:
         raise GigaChatError("down")
+
+
+class _RestrictedClient:
+    def summarize(self, prompt: str) -> str:
+        raise GigaChatContentRestrictedError("restricted")
 
 
 def test_summary_service_graceful_degradation() -> None:
@@ -29,6 +38,15 @@ def test_summary_service_cache_and_success() -> None:
     assert first.status == ProcessingStatus.SUCCESS
     assert second.status == ProcessingStatus.SUCCESS
     assert second.summary == "short summary"
+
+
+def test_summary_service_restricted_item_returns_placeholder() -> None:
+    service = SummaryService(_RestrictedClient())
+    result = service.summarize_item("topic text")
+
+    assert result.status == ProcessingStatus.FAILED
+    assert result.error_code == CONTENT_RESTRICTED_ERROR_CODE
+    assert result.summary == CONTENT_RESTRICTED_SUMMARY_TEXT
 
 
 class _CountingClient:

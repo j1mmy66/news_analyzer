@@ -9,7 +9,6 @@ from news_analyzer.observability.metrics import PipelineMetrics
 from news_analyzer.pipeline.enrich import classify_job
 from news_analyzer.pipeline.orchestration.idempotency import idempotency_key
 from news_analyzer.pipeline.orchestration.run_context import RunContext
-from news_analyzer.pipeline.summarize import retry_missing_summaries_job
 
 
 def test_run_classify_job_delegates_to_ner_job(monkeypatch) -> None:
@@ -23,19 +22,6 @@ def test_run_classify_job_delegates_to_ner_job(monkeypatch) -> None:
 
     assert classify_job.run_classify_job(limit=123) == 17
     assert captured["limit"] == 123
-
-
-def test_run_retry_missing_summaries_job_delegates_to_item_summary_job(monkeypatch) -> None:
-    captured: dict[str, int] = {}
-
-    def _fake_run_item_summary_job(limit: int = 200) -> int:
-        captured["limit"] = limit
-        return 9
-
-    monkeypatch.setattr(retry_missing_summaries_job, "run_item_summary_job", _fake_run_item_summary_job)
-
-    assert retry_missing_summaries_job.run_retry_missing_summaries_job(limit=77) == 9
-    assert captured["limit"] == 77
 
 
 def test_idempotency_key_uses_source_type_and_external_id() -> None:

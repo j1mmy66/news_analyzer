@@ -43,11 +43,24 @@ def run_semantic_dedup_job(limit: int = 5000) -> int:
         window_hours=settings.dedup_window_hours,
         text_chars=settings.dedup_text_chars,
     )
-    updates = deduplicator.deduplicate(items)
+    try:
+        updates = deduplicator.deduplicate(items)
+    except Exception:  # noqa: BLE001
+        logger.exception("Semantic dedup failed: unable to compute updates for batch_size=%s", len(items))
+        return 0
     if not updates:
         logger.info("Semantic dedup skipped: no valid items after preprocessing")
         return 0
 
-    repository.set_dedup_metadata_bulk(updates, updated_at=datetime.now(timezone.utc))
-    logger.info("Semantic dedup processed %s items", len(updates))
-    return len(updates)
+    result = repository.set_dedup_metadata_bulk(updates, updated_at=datetime.now(timezone.utc))
+    if result.failed_ids:
+        logger.warning(
+            "Semantic dedup completed with partial failures: attempted=%s updated=%s failed=%s failed_ids=%s",
+            result.attempted,
+            result.updated,
+            len(result.failed_ids),
+            ",".join(result.failed_ids),
+        )
+    else:
+        logger.info("Semantic dedup processed %s items", result.updated)
+    return result.updated

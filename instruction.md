@@ -87,12 +87,7 @@ UI:
 
 В Airflow включите и запустите:
 
-- `rbc_news_ingest`
-- `lenta_news_ingest`
-- `news_nlp_enrichment`
-- `news_summaries`
-- `news_retry_missing_summaries`
-- `dashboard_ner_metrics`
+- `news_unified_pipeline`
 
 ## 7. Импорт Superset assets
 
@@ -135,11 +130,11 @@ PYTHONPATH=src streamlit run src/news_analyzer/apps/streamlit/app.py
 ## 9. Проверка после запуска
 
 1. В `news_items` появляются новости из источников RBC и Lenta.
-2. Поля `class_label`, `entities`, `summary` заполняются после enrichment/summaries DAG-ов.
+2. Поля `class_label`, `entities`, `summary` заполняются после прохода `news_unified_pipeline`.
 3. В `hourly_digests` появляются hourly digest записи.
 4. В OpenSearch Dashboards видны индексы `news_items` и `hourly_digests`.
 5. В Superset обновляется dashboard `NER Entities Overview`.
-6. В Postgres обновляется `ner_entity_metrics` (после `dashboard_ner_metrics`).
+6. В Postgres обновляется `ner_entity_metrics` (в рамках `news_unified_pipeline`).
 
 Примечание по Lenta:
 - ingest Lenta использует RSS как список новостей и HTML страницы как источник полного текста;

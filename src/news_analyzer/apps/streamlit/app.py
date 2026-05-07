@@ -13,6 +13,7 @@ from news_analyzer.storage.opensearch.client import OpenSearchConfig, build_clie
 
 DEFAULT_BATCH_SIZE = 50
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+RBC_MAX_TRAILER_MARKER = "Оставайтесь на связи с РБК в «Максе» ."
 
 STATE_ITEMS_KEY = "feed_items"
 STATE_CURSOR_KEY = "feed_cursor"
@@ -37,13 +38,28 @@ def _query_service() -> StreamlitQueryService:
             verify_certs=settings.opensearch_verify_certs,
         )
     )
-    return StreamlitQueryService(client, settings.opensearch_news_index, settings.opensearch_digests_index)
+    return StreamlitQueryService(
+        client,
+        settings.opensearch_news_index,
+        settings.opensearch_digests_index,
+        feed_lookback_hours=settings.streamlit_feed_lookback_hours,
+    )
 
 
 def _format_dt(value: datetime | None) -> str:
     if value is None:
         return "n/a"
     return value.astimezone(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _prepare_full_text(raw_text: str | None, source_type: str | None) -> str | None:
+    if not raw_text or source_type != "rbc":
+        return raw_text
+
+    marker_idx = raw_text.find(RBC_MAX_TRAILER_MARKER)
+    if marker_idx == -1:
+        return raw_text
+    return raw_text[:marker_idx].rstrip()
 
 
 def _ensure_feed_state() -> None:
@@ -111,7 +127,8 @@ def _render_news_card(item: NewsCard) -> None:
     )
     st.write(item.summary or "Summary is pending")
     with st.expander("Показать новость целиком"):
-        st.write(item.raw_text or "Текст недоступен")
+        prepared_text = _prepare_full_text(item.raw_text, item.source_type)
+        st.write(prepared_text or "Текст недоступен")
         st.write(f"Section: {item.section or 'n/a'}")
         st.write(f"Authors: {item.authors or 'n/a'}")
         if item.url:

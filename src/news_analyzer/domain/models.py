@@ -57,3 +57,10 @@ class DedupMetadataUpdate:
     is_canonical: bool
     canonical_external_id: str
     similarity_to_canonical: float
+
+
+@dataclass(frozen=True)
+class DedupBulkUpdateResult:
+    attempted: int
+    updated: int
+    failed_ids: list[str] = field(default_factory=list)

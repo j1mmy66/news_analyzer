@@ -59,6 +59,31 @@ class _ConflictClientStub(_ClientStub):
             raise ConflictError(409, "version_conflict_engine_exception", "conflict")
 
 
+class _UpdateErrorClientStub(_ClientStub):
+    def __init__(self, failing_ids: set[str]) -> None:
+        super().__init__()
+        self._failing_ids = failing_ids
+
+    def update(self, **kwargs) -> None:
+        self.update_calls.append(kwargs)
+        if kwargs["id"] in self._failing_ids:
+            raise RuntimeError("update failed")
+
+
+class _SummaryConflictClientStub(_ClientStub):
+    def __init__(self, *, failures_before_success: int, always_fail: bool = False) -> None:
+        super().__init__()
+        self._failures_before_success = failures_before_success
+        self._always_fail = always_fail
+        self._update_attempts = 0
+
+    def update(self, **kwargs) -> None:
+        self.update_calls.append(kwargs)
+        self._update_attempts += 1
+        if self._always_fail or self._update_attempts <= self._failures_before_success:
+            raise ConflictError(409, "version_conflict_engine_exception", "conflict")
+
+
 class _InMemoryCreateOnlyClient:
     def __init__(self, existing_docs: dict[str, dict[str, object]] | None = None) -> None:
         self.index_calls: list[dict[str, object]] = []
@@ -179,6 +204,57 @@ def test_set_summary_updates_summary_fields() -> None:
     assert call["body"]["doc"]["summary_status"] == "success"
 
 
+def test_set_summary_retries_on_conflict_and_succeeds(monkeypatch) -> None:
+    sleep_calls: list[float] = []
+
+    def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("news_analyzer.storage.opensearch.repositories.time.sleep", _fake_sleep)
+
+    client = _SummaryConflictClientStub(failures_before_success=2)
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    repository.set_summary(
+        "id-3",
+        SummaryResult(
+            summary="summary",
+            status=ProcessingStatus.SUCCESS,
+            error_code=None,
+            updated_at=datetime(2026, 3, 17, 8, 1, tzinfo=timezone.utc),
+        ),
+    )
+
+    assert len(client.update_calls) == 3
+    assert sleep_calls == [0.1, 0.2]
+
+
+def test_set_summary_reraises_conflict_after_retry_limit(monkeypatch) -> None:
+    sleep_calls: list[float] = []
+
+    def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("news_analyzer.storage.opensearch.repositories.time.sleep", _fake_sleep)
+
+    client = _SummaryConflictClientStub(failures_before_success=0, always_fail=True)
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    with pytest.raises(ConflictError):
+        repository.set_summary(
+            "id-4",
+            SummaryResult(
+                summary="summary",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime(2026, 3, 17, 8, 1, tzinfo=timezone.utc),
+            ),
+        )
+
+    assert len(client.update_calls) == 3
+    assert sleep_calls == [0.1, 0.2]
+
+
 def test_set_hourly_digest_link_updates_each_news_item() -> None:
     client = _ClientStub()
     repository = NewsRepository(client=client, index_name="news_items")
@@ -194,7 +270,7 @@ def test_set_dedup_metadata_bulk_updates_each_news_item() -> None:
     client = _ClientStub()
     repository = NewsRepository(client=client, index_name="news_items")
 
-    repository.set_dedup_metadata_bulk(
+    result = repository.set_dedup_metadata_bulk(
         [
             DedupMetadataUpdate(
                 external_id="id-1",
@@ -212,6 +288,9 @@ def test_set_dedup_metadata_bulk_updates_each_news_item() -> None:
         updated_at=datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc),
     )
 
+    assert result.attempted == 2
+    assert result.updated == 2
+    assert result.failed_ids == []
     assert len(client.update_calls) == 2
     first = client.update_calls[0]
     second = client.update_calls[1]
@@ -223,6 +302,27 @@ def test_set_dedup_metadata_bulk_updates_each_news_item() -> None:
     assert second["body"]["doc"]["dedup_is_canonical"] is False
     assert second["body"]["doc"]["dedup_canonical_external_id"] == "id-1"
     assert second["body"]["doc"]["dedup_similarity_to_canonical"] == 0.95
+
+
+def test_set_dedup_metadata_bulk_continues_after_single_update_failure() -> None:
+    client = _UpdateErrorClientStub(failing_ids={"id-2"})
+    repository = NewsRepository(client=client, index_name="news_items")
+
+    result = repository.set_dedup_metadata_bulk(
+        [
+            DedupMetadataUpdate("id-1", True, "id-1", 1.0),
+            DedupMetadataUpdate("id-2", False, "id-1", 0.95),
+            DedupMetadataUpdate("id-3", False, "id-1", 0.94),
+        ],
+        updated_at=datetime(2026, 3, 17, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.attempted == 3
+    assert result.updated == 2
+    assert result.failed_ids == ["id-2"]
+    assert len(client.update_calls) == 3
+    assert client.update_calls[0]["id"] == "id-1"
+    assert client.update_calls[2]["id"] == "id-3"
 
 
 def test_set_enrichment_writes_entities_and_classification() -> None:
@@ -328,7 +428,7 @@ def test_get_recent_news_without_enrichment_builds_query_and_maps_hits(monkeypat
     assert call["body"]["size"] == 3
     query = call["body"]["query"]["bool"]
     assert query["minimum_should_match"] == 1
-    assert query["should"][0] == {"bool": {"must_not": [{"exists": {"field": "entities"}}]}}
+    assert query["should"][0] == {"bool": {"must_not": [{"exists": {"field": "class_label"}}]}}
     assert query["should"][1] == {"term": {"enrichment_status": ProcessingStatus.FAILED.value}}
 
 

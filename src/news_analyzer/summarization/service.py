@@ -7,10 +7,15 @@ from news_analyzer.domain.enums import ProcessingStatus
 from news_analyzer.domain.models import SummaryResult
 from news_analyzer.pipeline.orchestration.text_preprocessor import prepare_hourly_texts, truncate_text
 from news_analyzer.summarization.gigachat.cache import InMemorySummaryCache
-from news_analyzer.summarization.gigachat.client import GigaChatClient
+from news_analyzer.summarization.gigachat.client import GigaChatClient, GigaChatContentRestrictedError
 from news_analyzer.summarization.gigachat.mapper import build_hourly_prompt, build_item_prompt
 
 logger = logging.getLogger(__name__)
+
+CONTENT_RESTRICTED_ERROR_CODE = "CONTENT_RESTRICTED"
+CONTENT_RESTRICTED_SUMMARY_TEXT = (
+    "Извините, к сожалению, мы не можем суммаризировать эту новость в связи с её тематикой"
+)
 
 
 class SummaryService:
@@ -68,6 +73,13 @@ class SummaryService:
                 summary=summary,
                 status=ProcessingStatus.SUCCESS,
                 error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+        except GigaChatContentRestrictedError:
+            return SummaryResult(
+                summary=CONTENT_RESTRICTED_SUMMARY_TEXT,
+                status=ProcessingStatus.FAILED,
+                error_code=CONTENT_RESTRICTED_ERROR_CODE,
                 updated_at=datetime.now(timezone.utc),
             )
         except Exception as exc:  # noqa: BLE001

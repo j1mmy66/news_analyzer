@@ -20,4 +20,4 @@ Dashboard: `NER Entities Overview`
   - Dataset: `ner_entity_metrics`
   - Columns: `entity_name`, `entity_type`, `count_3h`, `count_24h`, `last_seen_at`
   - Limit: `100`
-  - Sort: `count_24h DESC`
+  - Sort: `count_3h DESC`

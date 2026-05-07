@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from news_analyzer.domain.enums import ProcessingStatus
 from news_analyzer.domain.models import SummaryResult
 from news_analyzer.pipeline.summarize import hourly_digest_job, item_summary_job
+from news_analyzer.summarization.service import CONTENT_RESTRICTED_ERROR_CODE
 
 
 class _SettingsNoCredentials:
@@ -81,6 +82,86 @@ def test_item_summary_job_uses_legacy_key_fallback(monkeypatch) -> None:
     assert captured["auth_key"] == "legacy-key"
 
 
+def test_item_summary_job_continues_when_single_set_summary_write_fails(monkeypatch) -> None:
+    captured: dict[str, object] = {"saved_ids": []}
+
+    class _FakeRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
+            return [
+                {"external_id": "id-1", "cleaned_text": "text-1"},
+                {"external_id": "id-2", "cleaned_text": "text-2"},
+            ]
+
+        def set_summary(self, external_id: str, summary: SummaryResult) -> None:
+            if external_id == "id-1":
+                raise RuntimeError("write failed")
+            saved_ids = captured["saved_ids"]
+            assert isinstance(saved_ids, list)
+            saved_ids.append(external_id)
+
+    class _FakeSummaryService:
+        def __init__(self, client: object, **kwargs) -> None:
+            return None
+
+        def summarize_item(self, text: str) -> SummaryResult:
+            return SummaryResult(
+                summary=f"summary:{text}",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setattr(item_summary_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsWithCredential()))
+    monkeypatch.setattr(item_summary_job, "build_client", lambda config: object())
+    monkeypatch.setattr(item_summary_job, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(item_summary_job, "SummaryService", _FakeSummaryService)
+    monkeypatch.setattr(item_summary_job, "GigaChatClient", lambda **kwargs: object())
+
+    assert item_summary_job.run_item_summary_job(limit=10) == 1
+    assert captured["saved_ids"] == ["id-2"]
+
+
+def test_item_summary_job_logs_warning_when_multiple_set_summary_writes_fail(monkeypatch, caplog) -> None:
+    class _FakeRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def get_recent_canonical_news_without_summary(self, limit: int = 100):
+            return [
+                {"external_id": "id-1", "cleaned_text": "text-1"},
+                {"external_id": "id-2", "cleaned_text": "text-2"},
+            ]
+
+        def set_summary(self, external_id: str, summary: SummaryResult) -> None:
+            raise RuntimeError(f"write failed for {external_id}")
+
+    class _FakeSummaryService:
+        def __init__(self, client: object, **kwargs) -> None:
+            return None
+
+        def summarize_item(self, text: str) -> SummaryResult:
+            return SummaryResult(
+                summary=f"summary:{text}",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setattr(item_summary_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsWithCredential()))
+    monkeypatch.setattr(item_summary_job, "build_client", lambda config: object())
+    monkeypatch.setattr(item_summary_job, "NewsRepository", _FakeRepository)
+    monkeypatch.setattr(item_summary_job, "SummaryService", _FakeSummaryService)
+    monkeypatch.setattr(item_summary_job, "GigaChatClient", lambda **kwargs: object())
+
+    with caplog.at_level("WARNING"):
+        assert item_summary_job.run_item_summary_job(limit=10) == 0
+
+    assert "attempted=2 saved=0 failed=2" in caplog.text
+
+
 def test_hourly_digest_job_does_not_create_digest_when_summary_failed(monkeypatch) -> None:
     calls = {"digest_upserted": False, "digest_linked": False}
 
@@ -96,7 +177,7 @@ def test_hourly_digest_job_does_not_create_digest_when_summary_failed(monkeypatc
             return None
 
         def get_canonical_news_for_last_hour(self):
-            return [{"external_id": "id-1", "cleaned_text": "text"}]
+            return [{"external_id": "id-1", "summary": "summary text", "summary_status": "success"}]
 
         def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
             calls["digest_linked"] = True
@@ -140,7 +221,7 @@ def test_hourly_digest_job_skips_when_credentials_missing(monkeypatch) -> None:
     assert hourly_digest_job.run_hourly_digest_job() is None
 
 
-def test_hourly_digest_job_uses_legacy_key_and_skips_when_no_texts(monkeypatch, caplog) -> None:
+def test_hourly_digest_job_uses_legacy_key_and_skips_when_no_eligible_summaries(monkeypatch, caplog) -> None:
     class _FakeIndexManager:
         def __init__(self, client: object) -> None:
             return None
@@ -153,25 +234,32 @@ def test_hourly_digest_job_uses_legacy_key_and_skips_when_no_texts(monkeypatch, 
             return None
 
         def get_canonical_news_for_last_hour(self):
-            return [{"external_id": "id-1", "cleaned_text": ""}]
+            return [
+                {
+                    "external_id": "id-1",
+                    "summary": "restricted text",
+                    "summary_status": "failed",
+                    "summary_error_code": CONTENT_RESTRICTED_ERROR_CODE,
+                }
+            ]
 
         def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
-            raise AssertionError("Should not link digest when texts are empty")
+            raise AssertionError("Should not link digest when summaries are filtered out")
 
     class _FakeDigestRepository:
         def __init__(self, client: object, index_name: str) -> None:
             return None
 
         def upsert(self, digest: object) -> None:
-            raise AssertionError("Should not upsert digest when texts are empty")
+            raise AssertionError("Should not upsert digest when summaries are filtered out")
 
     class _FakeSummaryService:
         def __init__(self, client: object, **kwargs) -> None:
-            raise AssertionError("SummaryService should not be created without texts")
+            raise AssertionError("SummaryService should not be created without eligible summaries")
 
     class _FakeGigaChatClient:
         def __init__(self, **kwargs) -> None:
-            raise AssertionError("GigaChatClient should not be created without texts")
+            raise AssertionError("GigaChatClient should not be created without eligible summaries")
 
     monkeypatch.setattr(hourly_digest_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsLegacyCredential()))
     monkeypatch.setattr(hourly_digest_job, "build_client", lambda config: object())
@@ -207,8 +295,8 @@ def test_hourly_digest_job_successfully_creates_digest_and_links_news(monkeypatc
 
         def get_canonical_news_for_last_hour(self):
             return [
-                {"external_id": "id-1", "cleaned_text": "text-1"},
-                {"external_id": "id-2", "cleaned_text": "text-2"},
+                {"external_id": "id-1", "summary": "summary-1", "summary_status": "success"},
+                {"external_id": "id-2", "summary": "summary-2", "summary_status": "success"},
             ]
 
         def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
@@ -226,7 +314,7 @@ def test_hourly_digest_job_successfully_creates_digest_and_links_news(monkeypatc
             return None
 
         def summarize_hour(self, texts: list[str]) -> SummaryResult:
-            assert texts == ["text-1", "text-2"]
+            assert texts == ["summary-1", "summary-2"]
             return SummaryResult(
                 summary="hour summary",
                 status=ProcessingStatus.SUCCESS,
@@ -248,3 +336,69 @@ def test_hourly_digest_job_successfully_creates_digest_and_links_news(monkeypatc
     assert digest_id == "digest-2026031708"
     assert calls["linked"] == (["id-1", "id-2"], "digest-2026031708")
     assert calls["digest"] is not None
+
+
+def test_hourly_digest_job_filters_restricted_and_failed_items(monkeypatch) -> None:
+    calls: dict[str, object] = {"linked": None}
+
+    class _FakeIndexManager:
+        def __init__(self, client: object) -> None:
+            return None
+
+        def ensure(self, index_name: str, mapping_file: str) -> None:
+            return None
+
+    class _FakeNewsRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def get_canonical_news_for_last_hour(self):
+            return [
+                {"external_id": "id-ok", "summary": "summary-ok", "summary_status": "success"},
+                {
+                    "external_id": "id-restricted",
+                    "summary": "summary-restricted",
+                    "summary_status": "failed",
+                    "summary_error_code": CONTENT_RESTRICTED_ERROR_CODE,
+                },
+                {"external_id": "id-failed", "summary": "summary-failed", "summary_status": "failed"},
+                {"external_id": "id-empty", "summary": "   ", "summary_status": "success"},
+            ]
+
+        def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
+            calls["linked"] = (external_ids, digest_id)
+
+    class _FakeDigestRepository:
+        def __init__(self, client: object, index_name: str) -> None:
+            return None
+
+        def upsert(self, digest: object) -> None:
+            return None
+
+    class _FakeSummaryService:
+        def __init__(self, client: object, **kwargs) -> None:
+            return None
+
+        def summarize_hour(self, texts: list[str]) -> SummaryResult:
+            assert texts == ["summary-ok"]
+            return SummaryResult(
+                summary="digest summary",
+                status=ProcessingStatus.SUCCESS,
+                error_code=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setattr(hourly_digest_job.AppSettings, "from_env", classmethod(lambda cls: _SettingsWithCredential()))
+    monkeypatch.setattr(hourly_digest_job, "build_client", lambda config: object())
+    monkeypatch.setattr(hourly_digest_job, "OpenSearchIndexManager", _FakeIndexManager)
+    monkeypatch.setattr(hourly_digest_job, "NewsRepository", _FakeNewsRepository)
+    monkeypatch.setattr(hourly_digest_job, "HourlyDigestRepository", _FakeDigestRepository)
+    monkeypatch.setattr(hourly_digest_job, "SummaryService", _FakeSummaryService)
+    monkeypatch.setattr(hourly_digest_job, "GigaChatClient", lambda **kwargs: object())
+
+    digest_id = hourly_digest_job.run_hourly_digest_job()
+
+    assert isinstance(digest_id, str)
+    assert calls["linked"] is not None
+    linked_ids = calls["linked"][0]
+    assert linked_ids == ["id-ok"]

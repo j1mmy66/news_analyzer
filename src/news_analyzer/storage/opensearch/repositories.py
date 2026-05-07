@@ -12,6 +12,7 @@ from opensearchpy.exceptions import ConflictError
 from news_analyzer.domain.enums import ProcessingStatus
 from news_analyzer.domain.models import (
     ClassificationResult,
+    DedupBulkUpdateResult,
     DedupMetadataUpdate,
     Entity,
     HourlyDigest,
@@ -26,6 +27,9 @@ class NewsRepository:
     _ENRICHMENT_RETRY_ATTEMPTS = 3
     _ENRICHMENT_RETRY_BACKOFF_SECONDS = 0.1
     _ENRICHMENT_RETRY_BACKOFF_CAP_SECONDS = 1.0
+    _SUMMARY_RETRY_ATTEMPTS = 3
+    _SUMMARY_RETRY_BACKOFF_SECONDS = 0.1
+    _SUMMARY_RETRY_BACKOFF_CAP_SECONDS = 1.0
 
     def __init__(self, client: OpenSearch, index_name: str) -> None:
         self._client = client
@@ -113,7 +117,25 @@ class NewsRepository:
                 "summary_updated_at": summary.updated_at.astimezone(timezone.utc).isoformat(),
             }
         }
-        self._client.update(index=self._index_name, id=external_id, body=body)
+        for attempt in range(1, self._SUMMARY_RETRY_ATTEMPTS + 1):
+            try:
+                self._client.update(index=self._index_name, id=external_id, body=body)
+                return
+            except ConflictError:
+                if attempt >= self._SUMMARY_RETRY_ATTEMPTS:
+                    raise
+                delay = min(
+                    self._SUMMARY_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                    self._SUMMARY_RETRY_BACKOFF_CAP_SECONDS,
+                )
+                logger.warning(
+                    "Version conflict on set_summary for %s; retry %s/%s in %.2fs",
+                    external_id,
+                    attempt + 1,
+                    self._SUMMARY_RETRY_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
 
     def set_hourly_digest_link(self, external_ids: list[str], digest_id: str) -> None:
         for external_id in external_ids:
@@ -128,21 +150,32 @@ class NewsRepository:
         updates: Iterable[DedupMetadataUpdate],
         *,
         updated_at: datetime | None = None,
-    ) -> None:
+    ) -> DedupBulkUpdateResult:
         updated_at_iso = (updated_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
+        attempted = 0
+        updated = 0
+        failed_ids: list[str] = []
         for update in updates:
-            self._client.update(
-                index=self._index_name,
-                id=update.external_id,
-                body={
-                    "doc": {
-                        "dedup_is_canonical": update.is_canonical,
-                        "dedup_canonical_external_id": update.canonical_external_id,
-                        "dedup_similarity_to_canonical": update.similarity_to_canonical,
-                        "dedup_updated_at": updated_at_iso,
-                    }
-                },
-            )
+            attempted += 1
+            try:
+                self._client.update(
+                    index=self._index_name,
+                    id=update.external_id,
+                    body={
+                        "doc": {
+                            "dedup_is_canonical": update.is_canonical,
+                            "dedup_canonical_external_id": update.canonical_external_id,
+                            "dedup_similarity_to_canonical": update.similarity_to_canonical,
+                            "dedup_updated_at": updated_at_iso,
+                        }
+                    },
+                )
+                updated += 1
+            except Exception:  # noqa: BLE001
+                failed_ids.append(update.external_id)
+                logger.exception("Failed to persist dedup metadata for external_id=%s", update.external_id)
+
+        return DedupBulkUpdateResult(attempted=attempted, updated=updated, failed_ids=failed_ids)
 
     def get_news_for_dedup_candidates(
         self,
@@ -210,7 +243,7 @@ class NewsRepository:
         now_utc = datetime.now(timezone.utc)
         window_start = now_utc - timedelta(hours=hours)
         retry_candidates: list[dict[str, object]] = [
-            {"bool": {"must_not": [{"exists": {"field": "entities"}}]}},
+            {"bool": {"must_not": [{"exists": {"field": "class_label"}}]}},
             {"term": {"enrichment_status": ProcessingStatus.FAILED.value}},
         ]
         response = self._client.search(

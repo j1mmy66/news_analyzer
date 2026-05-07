@@ -224,15 +224,23 @@ def test_app_query_service_builds_client_from_settings(monkeypatch) -> None:
         opensearch_password = "p"
         opensearch_use_ssl = True
         opensearch_verify_certs = True
+        streamlit_feed_lookback_hours = 48
 
     def _fake_build_client(config):
         return "client-object"
 
     class _FakeQueryService:
-        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+        def __init__(
+            self,
+            client: object,
+            news_index: str,
+            digest_index: str,
+            feed_lookback_hours: int = 48,
+        ) -> None:
             self.client = client
             self.news_index = news_index
             self.digest_index = digest_index
+            self.feed_lookback_hours = feed_lookback_hours
 
     monkeypatch.setattr(app.AppSettings, "from_env", classmethod(lambda cls: _Settings()))
     monkeypatch.setattr(app, "build_client", _fake_build_client)
@@ -244,6 +252,7 @@ def test_app_query_service_builds_client_from_settings(monkeypatch) -> None:
     assert service.client == "client-object"
     assert service.news_index == "news_items"
     assert service.digest_index == "hourly_digests"
+    assert service.feed_lookback_hours == 48
 
 
 def test_app_format_dt_handles_none() -> None:
@@ -308,6 +317,7 @@ def test_app_main_guard_executes_render_app(monkeypatch) -> None:
         opensearch_password = None
         opensearch_use_ssl = False
         opensearch_verify_certs = False
+        streamlit_feed_lookback_hours = 48
 
     class _AppSettings:
         @classmethod
@@ -328,7 +338,13 @@ def test_app_main_guard_executes_render_app(monkeypatch) -> None:
     fake_query_module = types.ModuleType("news_analyzer.apps.streamlit.query_service")
 
     class _Service:
-        def __init__(self, client: object, news_index: str, digest_index: str) -> None:
+        def __init__(
+            self,
+            client: object,
+            news_index: str,
+            digest_index: str,
+            feed_lookback_hours: int = 48,
+        ) -> None:
             return None
 
         def latest_hourly_digest_for_last_hour(self):
@@ -381,3 +397,75 @@ def test_render_app_handles_digest_backend_error(monkeypatch) -> None:
     app.render_app()
 
     assert any("OpenSearch недоступен" in line for line in fake_st.writes)
+
+
+def test_render_news_card_trims_rbc_text_from_max_marker(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-1",
+        title="Title 1",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="rbc",
+        raw_text=(
+            "Полный текст до маркера. "
+            "Оставайтесь на связи с РБК в «Максе» . "
+            "Хвост, который нужно убрать."
+        ),
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Полный текст до маркера." in line for line in fake_st.writes)
+    assert not any("Хвост, который нужно убрать." in line for line in fake_st.writes)
+
+
+def test_render_news_card_does_not_trim_non_rbc_text(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-2",
+        title="Title 2",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="lenta",
+        raw_text=(
+            "Текст сохраняется. "
+            "Оставайтесь на связи с РБК в «Максе» . "
+            "Хвост должен остаться."
+        ),
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Хвост должен остаться." in line for line in fake_st.writes)
+
+
+def test_render_news_card_keeps_rbc_text_when_marker_absent(monkeypatch) -> None:
+    fake_st = _FakeStreamlit(button_value=False)
+    monkeypatch.setattr(app, "st", fake_st)
+    item = NewsCard(
+        external_id="id-3",
+        title="Title 3",
+        summary="Summary",
+        class_label="economy",
+        published_at=datetime(2026, 3, 17, 7, 30, tzinfo=timezone.utc),
+        source_type="rbc",
+        raw_text="Текст без маркера должен остаться как есть.",
+        url=None,
+        authors="",
+        section=None,
+    )
+
+    app._render_news_card(item)
+
+    assert any("Текст без маркера должен остаться как есть." in line for line in fake_st.writes)
