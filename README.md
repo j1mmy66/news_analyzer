@@ -1,49 +1,52 @@
 # News Analyzer
 
-`News Analyzer` - система потокового анализа новостей на русском языке.
+`News Analyzer` - система потокового анализа русскоязычных новостей с отдельными интерфейсами для новостной ленты и NER-аналитики.
 
-## Что делает проект
+## Актуальный функционал
 
-- собирает новости из источников RBC и Lenta.ru и нормализует данные
-- сохраняет raw/normalized контент и метаданные
-- извлекает именованные сущности (NER) в структурированном виде
-- классифицирует каждую новость (`class_label`, `class_confidence`)
-- генерирует per-item summary и hourly digest через Sber GigaChat API
-- предоставляет два UX-слоя:
-  - Streamlit-приложение для просмотра ленты новостей, per-item summary и hourly digest
-  - аналитический dashboard (Superset) для entity-centric анализа и NER-метрик
+- извлечение новостных метериалов из `RBC` и `Lenta`;
+- семантическая дедубликация материалов
+- выделение именованных сущностей (NER)
+- тематическая классификация
+- суммаризация каждой новости и формирование часового дайджеста
+- Streamlit UI для чтения ленты и суммаризаций;
+- Superset dashboard для NER аналитики.
 
-## Архитектура
+## Пайплайн `news_unified_pipeline`
 
-- `sources/rbc` и `sources/lenta` - сбор и парсинг новостей из источников
-- `pipeline/ingest` - загрузка в хранилище
-- `pipeline/enrich` - NER + классификация
-- `pipeline/summarize` - per-item summary и hourly digest
-- `pipeline/dashboard` - агрегация метрик сущностей для Superset
-- `storage/opensearch` - индексы и репозитории для новостей и digest
-- `apps/streamlit` - пользовательский интерфейс ленты и digest
-- `apps/dashboard/superset` - assets для NER dashboard
-- `dags/` - orchestration в Airflow
+DAG запускается каждые 30 минут (`*/30 * * * *`) и выполняет этапы:
 
-## Пользовательские интерфейсы
+1. `rbc_ingest`
+2. `lenta_ingest`
+3. `ingest_gate` (пайплайн продолжается, если успешно отработал хотя бы один источник)
+4. `semantic_dedup`
+5. `ner_and_classification`
+6. `item_summaries`
+7. `hourly_digest`
+8. `refresh_ner_entity_metrics`
 
-`Dashboard (Superset)` реализован как отдельный NER-ориентированный аналитический слой и предназначен для исследования новостного потока через извлечённые именованные сущности. Он работает поверх агрегированной таблицы `ner_entity_metrics`, которая регулярно пересчитывается Airflow-процессом на основе обработанных новостей, и позволяет анализировать наиболее заметные сущности по временным окнам `3h` и `24h`, отслеживать их тип, частоту упоминаний и время последнего появления. Такой интерфейс ориентирован не на чтение отдельных публикаций, а на entity-centric анализ, фильтрацию и поиск наблюдаемых трендов в новостном потоке.
+## Актуальная структура проекта
 
-`Streamlit-приложение` является отдельным пользовательским интерфейсом для просмотра обработанного новостного потока и результатов NLP-обогащения. В нём отображается лента новостей с краткими `summary`, метками `class_label`, временем публикации, источником и ссылкой на исходный материал, а также доступен разворачиваемый просмотр полного текста, секции и авторов публикации. Дополнительно интерфейс показывает `hourly digest` за последний час и поддерживает базовую фильтрацию по источнику и классу новости, поэтому служит основным слоем для чтения, быстрого обзора и навигации по уже обработанным новостям.
-
-## Источники и деградация
-
-- Поддерживаются источники `rbc` и `lenta`.
-- Для Lenta используется схема: RSS-лента (`https://lenta.ru/rss/news`) как индекс свежих новостей + попытка извлечения `full_text` по `link`.
-- Если для Lenta не удалось получить `full_text` (включая anti-bot challenge/пустой HTML), запись пропускается на этапе ingest и не индексируется.
-- В Airflow должен быть включён единый DAG: `news_unified_pipeline` (`rbc + lenta -> dedup -> nlp -> summaries + dashboard`).
-
+- `dags/news_unified_pipeline_dag.py` - orchestration в Airflow.
+- `src/news_analyzer/sources/` - коллекторы и парсеры источников (`rbc`, `lenta`).
+- `src/news_analyzer/pipeline/ingest/` - извлечение + политики деградации.
+- `src/news_analyzer/pipeline/dedup/` - семантическая дедупликация.
+- `src/news_analyzer/pipeline/enrich/` - NER + классификация.
+- `src/news_analyzer/pipeline/summarize/` - суммаризация.
+- `src/news_analyzer/pipeline/dashboard/` - расчёт `ner_entity_metrics` для Superset.
+- `src/news_analyzer/storage/opensearch/` - взаимодействие с хранилищем новостей OpenSearch 
+- `src/news_analyzer/apps/streamlit/` - пользовательское приложение.
+- `src/news_analyzer/apps/dashboard/superset/` - Superset.
+- `src/news_analyzer/settings/` - настройки времени выполнения и конфигурация источников.
+- `tests/` - тесты.
 
 ## Технологии
 
-- Python
+- Python 3.11+
 - Apache Airflow
 - OpenSearch
 - Streamlit
 - Apache Superset
+- PostgreSQL
 - Sber GigaChat API
+
